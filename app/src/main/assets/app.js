@@ -1,84 +1,626 @@
-'use strict';
-const $=id=>document.getElementById(id);
-const DB_NAME='shanfood_temperaturas_offline';
-let db, devices=[], records=[], activeTab='today', currentPhotoUrl=null, noticeTimer;
-const encoder=new TextEncoder(), decoder=new TextDecoder();
-const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const uid=()=>globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
-const localDay=d=>{const x=new Date(d);return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`};
-const humanDate=d=>new Date(d).toLocaleString('es-ES',{dateStyle:'short',timeStyle:'short'});
-const humanNumber=n=>Number(n).toLocaleString('es-ES',{maximumFractionDigits:1});
-function toast(msg,error=false){const box=$('notice');box.textContent=msg;box.classList.toggle('error',error);box.classList.remove('hidden');clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>box.classList.add('hidden'),7500);window.scrollTo({top:0,behavior:'smooth'})}
-function request(req){return new Promise((yes,no)=>{req.onsuccess=()=>yes(req.result);req.onerror=()=>no(req.error||Error('Error de lectura'))})}
-function openDB(){return new Promise((yes,no)=>{let r=indexedDB.open(DB_NAME,1);r.onupgradeneeded=()=>{const d=r.result;d.createObjectStore('devices',{keyPath:'id'});d.createObjectStore('records',{keyPath:'id'});d.createObjectStore('photos',{keyPath:'id'})};r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error);r.onblocked=()=>no(Error('Cierra otras ventanas de la aplicación'))})}
-const store=(name,mode='readonly')=>db.transaction(name,mode).objectStore(name);
-const getAll=async name=>request(store(name).getAll());
-const getOne=async(name,id)=>request(store(name).get(id));
-const save=async(name,item)=>request(store(name,'readwrite').put(item));
-function batchSave(record,photo){return new Promise((yes,no)=>{const tx=db.transaction(['records','photos'],'readwrite');tx.objectStore('records').put(record);tx.objectStore('photos').put({id:record.id,blob:photo});tx.oncomplete=yes;tx.onerror=()=>no(tx.error||Error('Error al guardar'));tx.onabort=()=>no(tx.error||Error('Guardado cancelado'))})}
-async function reload(){[devices,records]=await Promise.all([getAll('devices'),getAll('records')]);devices.sort((a,b)=>a.name.localeCompare(b.name,'es'));records.sort((a,b)=>b.at.localeCompare(a.at));render()}
-function showTab(name){activeTab=name;document.querySelectorAll('.tab-view').forEach(x=>x.classList.toggle('hidden',x.id!==name));document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));if(name==='backup')refreshStorage();if(name==='new')updateRange();window.scrollTo({top:0,behavior:'smooth'})}
-function options(list,prompt){return `<option value="">${prompt}</option>`+list.map(x=>`<option value="${safe(x.id)}">${safe(x.name)}</option>`).join('')}
-function render(){const prevDevice=$('recordDevice').value,prevFilter=$('filterDevice').value;$('recordDevice').innerHTML=options(devices.filter(x=>x.active),'Selecciona un equipo');$('filterDevice').innerHTML=options(devices,'Todos los equipos');if(devices.some(x=>x.id===prevDevice&&x.active))$('recordDevice').value=prevDevice;if(devices.some(x=>x.id===prevFilter))$('filterDevice').value=prevFilter;renderToday();renderDevices();renderHistory();renderBackupReminder();updateRange()}
-function renderToday(){const today=localDay(new Date()),active=devices.filter(d=>d.active),todayRows=records.filter(r=>localDay(r.at)===today),done=new Set(todayRows.map(r=>r.deviceId)),alerts=todayRows.filter(r=>r.outOfRange).length;
-$('todayDate').textContent=new Date().toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
-$('countDone').textContent=active.filter(d=>done.has(d.id)).length;$('countPending').textContent=active.filter(d=>!done.has(d.id)).length;$('countAlert').textContent=alerts;
-$('todayItems').innerHTML=active.length?active.map(d=>{const row=todayRows.find(x=>x.deviceId===d.id);return `<div class="item"><div class="item-head"><div class="item-title">${safe(d.name)}</div><span class="badge ${!row?'pending':row.outOfRange?'bad':'ok'}">${!row?'Pendiente':row.outOfRange?'Fuera de rango':'Registrado'}</span></div><div class="details">${safe(d.type)} · Rango ${humanNumber(d.min)} a ${humanNumber(d.max)} °C</div>${row?`<div class="details">Última: <strong>${humanNumber(row.temp)} °C</strong> · ${humanDate(row.at)} · ${safe(row.person)}</div>`:''}<div class="item-actions"><button class="outline small" data-record="${safe(d.id)}">＋ Registrar</button></div></div>`}).join(''):'<p class="muted">No hay equipos. Añade uno en la pestaña «Equipos».</p>'}
-function renderDevices(){$('deviceItems').innerHTML=devices.length?devices.map(d=>`<div class="item"><div class="item-head"><div class="item-title">${safe(d.name)}</div><span class="badge ${d.active?'ok':'pending'}">${d.active?'Activo':'Inactivo'}</span></div><div class="details">${safe(d.type)} · ${humanNumber(d.min)} a ${humanNumber(d.max)} °C</div><div class="item-actions"><button class="outline small" data-edit="${safe(d.id)}">Editar</button></div></div>`).join(''):'<p class="muted">Todavía no hay equipos.</p>'}
-function renderHistory(){const date=$('filterDate').value,device=$('filterDevice').value;const found=records.filter(x=>(!date||localDay(x.at)===date)&&(!device||x.deviceId===device));$('historyItems').innerHTML=found.length?found.slice(0,250).map(r=>`<div class="item"><div class="item-head"><span class="item-title">${safe(r.deviceName)}</span><span class="badge ${r.outOfRange?'bad':'ok'}">${humanNumber(r.temp)} °C</span></div><div class="details">${humanDate(r.at)} · ${safe(r.person)}${r.outOfRange?' · ⚠ Fuera de rango':''}</div>${r.notes?`<div class="details">${safe(r.notes)}</div>`:''}<div class="item-actions"><button class="outline small" data-photo="${safe(r.id)}">Ver fotografía</button></div></div>`).join('')+(found.length>250?'<p class="hint">Mostrando 250 resultados. Filtra por fecha o equipo.</p>':''):'<p class="muted">No hay registros con esos filtros.</p>'}
-function renderBackupReminder(){const last=Number(localStorage.getItem('rt_last_backup')||0),week=7*24*60*60*1000,show=records.length>0&&(!last||Date.now()-last>week);$('backupReminder').classList.toggle('hidden',!show);$('lastBackup').textContent='Última copia: '+(last?humanDate(last):'nunca')}
-function updateRange(){const d=devices.find(x=>x.id===$('recordDevice').value);$('rangeHelp').textContent=d?`Rango permitido: ${humanNumber(d.min)} a ${humanNumber(d.max)} °C`:'Selecciona un equipo para ver el rango permitido.'}
-function resetDeviceForm(){$('deviceForm').reset();$('deviceId').value='';$('deviceMin').value='0';$('deviceMax').value='5';$('deviceActive').checked=true;$('deviceFormTitle').textContent='Añadir equipo'}
-$('deviceForm').addEventListener('submit',async e=>{e.preventDefault();const name=$('deviceName').value.trim(),min=Number($('deviceMin').value),max=Number($('deviceMax').value);if(!name||!Number.isFinite(min)||!Number.isFinite(max)||min>max)return toast('Comprueba el nombre y el rango de temperaturas.',true);const id=$('deviceId').value||uid(),item={id,name,type:$('deviceType').value,min,max,active:$('deviceActive').checked};try{await save('devices',item);resetDeviceForm();await reload();toast('Equipo guardado.')}catch(err){toast('No se pudo guardar el equipo: '+err.message,true)}});
-$('resetDevice').onclick=resetDeviceForm;
-$('deviceItems').onclick=e=>{const b=e.target.closest('[data-edit]');if(!b)return;const d=devices.find(x=>x.id===b.dataset.edit);if(!d)return;$('deviceId').value=d.id;$('deviceName').value=d.name;$('deviceType').value=d.type;$('deviceMin').value=d.min;$('deviceMax').value=d.max;$('deviceActive').checked=d.active;$('deviceFormTitle').textContent='Editar equipo';window.scrollTo({top:0,behavior:'smooth'})};
-$('todayItems').onclick=e=>{const b=e.target.closest('[data-record]');if(!b)return;showTab('new');$('recordDevice').value=b.dataset.record;updateRange()};
-$('recordDevice').onchange=updateRange;
-$('recordPhoto').onchange=()=>{const file=$('recordPhoto').files[0];if(currentPhotoUrl){URL.revokeObjectURL(currentPhotoUrl);currentPhotoUrl=null}const p=$('preview');p.classList.toggle('hidden',!file);if(file){currentPhotoUrl=URL.createObjectURL(file);p.src=currentPhotoUrl}else p.removeAttribute('src')};
-async function shrinkPhoto(file){if(!file||!file.type.startsWith('image/'))throw Error('Selecciona una imagen válida');if(file.size>35*1024*1024)throw Error('La imagen supera 35 MB');let bitmap=null;try{bitmap=await createImageBitmap(file);const ratio=Math.min(1,1600/Math.max(bitmap.width,bitmap.height)),w=Math.max(1,Math.round(bitmap.width*ratio)),h=Math.max(1,Math.round(bitmap.height*ratio));const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;canvas.getContext('2d',{alpha:false}).drawImage(bitmap,0,0,w,h);return await new Promise((yes,no)=>canvas.toBlob(b=>b?yes(b):no(Error('No se pudo comprimir la foto')),'image/jpeg',.75))}catch(error){throw Error('No se puede procesar esta foto. Prueba con una foto JPG normal. '+error.message)}finally{bitmap?.close?.()}}
-$('recordForm').addEventListener('submit',async e=>{e.preventDefault();const button=$('saveRecord');button.disabled=true;try{const d=devices.find(x=>x.id===$('recordDevice').value&&x.active),temp=Number($('recordTemp').value),person=$('recordPerson').value.trim(),notes=$('recordNotes').value.trim(),file=$('recordPhoto').files[0];if(!d||!file||!person||!Number.isFinite(temp)||!$('recordTemp').value.trim())throw Error('Completa equipo, temperatura, responsable y foto.');if(temp < -100||temp>100)throw Error('Comprueba la temperatura introducida.');const abnormal=temp<d.min||temp>d.max;if(abnormal&&!notes)throw Error('Temperatura fuera de rango: escribe la incidencia y la medida correctora.');const photo=await shrinkPhoto(file),row={id:uid(),deviceId:d.id,deviceName:d.name,temp,person,notes,outOfRange:abnormal,at:new Date().toISOString(),minAtRecord:d.min,maxAtRecord:d.max};await batchSave(row,photo);localStorage.setItem('rt_last_person',person);$('recordForm').reset();$('recordPerson').value=person;if(currentPhotoUrl){URL.revokeObjectURL(currentPhotoUrl);currentPhotoUrl=null}$('preview').classList.add('hidden');await reload();showTab('today');toast(abnormal?'⚠ Lectura fuera de rango guardada. Revisar incidencia.':'Lectura y foto guardadas en este teléfono.')}catch(err){toast(err?.name==='QuotaExceededError'?'Sin espacio disponible: exporta una copia ZIP y libera almacenamiento.':err.message,true)}finally{button.disabled=false}});
-$('historyItems').onclick=async e=>{const btn=e.target.closest('[data-photo]');if(!btn)return;const row=records.find(r=>r.id===btn.dataset.photo);if(!row)return;try{const value=await getOne('photos',row.id);if(!value?.blob)throw Error('No se encuentra la foto');const dialog=$('photoDialog');const url=URL.createObjectURL(value.blob);$('fullPhoto').src=url;$('photoCaption').textContent=`${row.deviceName} · ${humanNumber(row.temp)} °C · ${humanDate(row.at)} · ${row.person}`;dialog.showModal();dialog.addEventListener('close',()=>{URL.revokeObjectURL(url);$('fullPhoto').removeAttribute('src')},{once:true})}catch(err){toast(err.message,true)}};
-$('closePhoto').onclick=()=>$('photoDialog').close();
-$('filterDate').onchange=renderHistory;$('filterDevice').onchange=renderHistory;$('clearFilters').onclick=()=>{$('filterDate').value='';$('filterDevice').value='';renderHistory()};
-async function nativeExport(blob,name,mode='save'){
- // AndroidBridge transmite partes pequeñas para evitar enviar fotos por una URL externa.
- if(!window.AndroidBridge) throw Error('No se está ejecutando en la aplicación Android');
- AndroidBridge.begin(name);
- try {
-   const partSize=96*1024;
-   for(let offset=0;offset<blob.size;offset+=partSize){
-     const buf=new Uint8Array(await blob.slice(offset,offset+partSize).arrayBuffer());
-     let raw=''; for(let i=0;i<buf.length;i++)raw+=String.fromCharCode(buf[i]);
-     AndroidBridge.append(btoa(raw));
-   }
-   AndroidBridge.finish(mode);
- }catch(err){AndroidBridge.cancel();throw err}
-}
-function downloadBlob(blob,name){
- if(window.AndroidBridge){nativeExport(blob,name,'save').catch(err=>toast('Error exportando: '+err.message,true));return}
- const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)
-}
-$('exportCsv').onclick=()=>{const date=$('filterDate').value,device=$('filterDevice').value,filtered=records.filter(r=>(!date||localDay(r.at)===date)&&(!device||r.deviceId===device));const rows=[['fecha_hora','equipo','temperatura_c','responsable','fuera_rango','observaciones','id_registro'],...filtered.map(r=>[humanDate(r.at),r.deviceName,r.temp,r.person,r.outOfRange?'SI':'NO',r.notes,r.id])];const csv='\uFEFF'+rows.map(r=>r.map(v=>{let s=String(v??'');if(/^[=+@\-\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"'}).join(';')).join('\r\n');downloadBlob(new Blob([csv],{type:'text/csv;charset=utf-8'}),`temperaturas_${localDay(new Date())}.csv`);toast('CSV exportado. Recuerda: las fotos solo se incluyen en la copia ZIP.')};
+(function () {
+  'use strict';
 
-// ZIP no comprimido, compatible con Google Drive, Windows y Android.
-// Las fotos ya están comprimidas en JPEG; así no dependemos de bibliotecas externas ni internet.
-const CRC_TABLE=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?0xedb88320^(c>>>1):(c>>>1);t[n]=c>>>0}return t})();
-function crc32(bytes){let c=0xffffffff;for(const x of bytes)c=CRC_TABLE[(c^x)&255]^(c>>>8);return(c^0xffffffff)>>>0}
-function z16(v,o,n){v.setUint16(o,n,true)}function z32(v,o,n){v.setUint32(o,n>>>0,true)}
-function zipFiles(items){let output=[],central=[],offset=0,now=new Date(),dosTime=(now.getHours()<<11)|(now.getMinutes()<<5)|(now.getSeconds()>>1),dosDate=((now.getFullYear()-1980)<<9)|((now.getMonth()+1)<<5)|now.getDate();for(const entry of items){const name=encoder.encode(entry.name),data=entry.data;const crc=crc32(data),local=new Uint8Array(30+name.length),lv=new DataView(local.buffer);z32(lv,0,0x04034b50);z16(lv,4,20);z16(lv,6,0x800);z16(lv,8,0);z16(lv,10,dosTime);z16(lv,12,dosDate);z32(lv,14,crc);z32(lv,18,data.length);z32(lv,22,data.length);z16(lv,26,name.length);local.set(name,30);output.push(local,data);
-const cen=new Uint8Array(46+name.length),cv=new DataView(cen.buffer);z32(cv,0,0x02014b50);z16(cv,4,20);z16(cv,6,20);z16(cv,8,0x800);z16(cv,10,0);z16(cv,12,dosTime);z16(cv,14,dosDate);z32(cv,16,crc);z32(cv,20,data.length);z32(cv,24,data.length);z16(cv,28,name.length);z32(cv,42,offset);cen.set(name,46);central.push(cen);offset+=local.length+data.length}
-if(items.length>65535||offset>0xffffffff)throw Error('La copia es demasiado grande. Contacta para un exportador por partes.');const size=central.reduce((n,b)=>n+b.length,0),end=new Uint8Array(22),ev=new DataView(end.buffer);z32(ev,0,0x06054b50);z16(ev,8,items.length);z16(ev,10,items.length);z32(ev,12,size);z32(ev,16,offset);return new Blob([...output,...central,end],{type:'application/zip'})}
-function unzipOurBackup(buffer){const bytes=new Uint8Array(buffer),view=new DataView(buffer),out=new Map();let cursor=0,count=0;while(cursor+4<=bytes.byteLength&&view.getUint32(cursor,true)===0x04034b50){if(count++>40000)throw Error('La copia contiene demasiados archivos');if(cursor+30>bytes.byteLength)throw Error('ZIP incompleto');const flags=view.getUint16(cursor+6,true),method=view.getUint16(cursor+8,true),expectedCRC=view.getUint32(cursor+14,true),len=view.getUint32(cursor+18,true),nameLen=view.getUint16(cursor+26,true),extra=view.getUint16(cursor+28,true);if(method!==0||(flags&0x08))throw Error('Formato ZIP no compatible: utiliza una copia creada por esta aplicación');const start=cursor+30+nameLen+extra,end=start+len;if(end>bytes.byteLength)throw Error('Archivo ZIP dañado');const name=decoder.decode(bytes.subarray(cursor+30,cursor+30+nameLen));if(!name||out.has(name)||name.includes('..')||name.startsWith('/'))throw Error('Nombre de archivo no válido en la copia');const content=bytes.slice(start,end);if(crc32(content)!==expectedCRC)throw Error('Copia dañada: error de integridad '+name);out.set(name,content);cursor=end}if(!out.has('registro.json'))throw Error('No es una copia de este sistema (falta registro.json)');return out}
-async function createBackup(){const items=[],photoRows=await getAll('photos');const manifest={format:'SHANFOODSGROUP_REGISTRO_TEMPERATURAS',version:1,exportedAt:new Date().toISOString(),devices,records:records.map(({id,deviceId,deviceName,temp,person,notes,outOfRange,at,minAtRecord,maxAtRecord})=>({id,deviceId,deviceName,temp,person,notes,outOfRange,at,minAtRecord,maxAtRecord}))};items.push({name:'registro.json',data:encoder.encode(JSON.stringify(manifest,null,2))});for(const p of photoRows){if(!records.some(r=>r.id===p.id)||!(p.blob instanceof Blob))throw Error('Fotos incompletas: falta una imagen asociada a un registro.');items.push({name:`fotos/${p.id}.jpg`,data:new Uint8Array(await p.blob.arrayBuffer())})}if(photoRows.length!==records.length)throw Error('La cantidad de fotos no coincide con los registros. Comprueba el historial.');return zipFiles(items)}
-async function markBackup(){localStorage.setItem('rt_last_backup',String(Date.now()));renderBackupReminder()}
-function backupFilename(){return `SHANFOODSGROUP_temperaturas_${localDay(new Date())}.zip`}
-$('downloadBackup').onclick=async()=>{const btn=$('downloadBackup');btn.disabled=true;try{const blob=await createBackup();downloadBlob(blob,backupFilename());await markBackup();toast(`Copia creada (${(blob.size/1048576).toFixed(1)} MB). Comprueba que se haya guardado fuera del teléfono.`)}catch(err){toast('Error creando copia: '+err.message,true)}finally{btn.disabled=false}};
-$('shareBackup').onclick=async()=>{const btn=$('shareBackup');btn.disabled=true;try{const blob=await createBackup(),file=new File([blob],backupFilename(),{type:'application/zip'});if(window.AndroidBridge){await nativeExport(blob,file.name,'share');toast('Elige Google Drive u otra aplicación para compartir la copia.')}else if(navigator.canShare?.({files:[file]})){await navigator.share({files:[file],title:'Copia Registro Temperaturas'});await markBackup();toast('Archivo compartido. Comprueba que esté guardado en Drive u otro destino.')}else{downloadBlob(blob,file.name);await markBackup();toast('Este navegador no permite compartir ZIP directamente. Se ha descargado la copia: súbela manualmente a Google Drive.')}}catch(err){if(err.name!=='AbortError')toast('No se pudo compartir: '+err.message,true)}finally{btn.disabled=false}};
-function checkBackup(manifest,files){if(manifest.format!=='SHANFOODSGROUP_REGISTRO_TEMPERATURAS'||manifest.version!==1||!Array.isArray(manifest.devices)||!Array.isArray(manifest.records))throw Error('Copia incompatible');if(manifest.devices.length>10000||manifest.records.length>40000)throw Error('Demasiados registros');const ids=new Set();for(const d of manifest.devices){if(!d||typeof d.id!=='string'||typeof d.name!=='string'||!Number.isFinite(d.min)||!Number.isFinite(d.max)||d.min>d.max||typeof d.active!=='boolean')throw Error('Datos de equipo no válidos');if(ids.has(d.id))throw Error('Equipos duplicados');ids.add(d.id)}ids.clear();for(const r of manifest.records){if(!r||typeof r.id!=='string'||!r.id||r.id.includes('/')||r.id.includes('..')||typeof r.deviceName!=='string'||typeof r.person!=='string'||!Number.isFinite(r.temp)||Number.isNaN(Date.parse(r.at)))throw Error('Registro no válido');if(ids.has(r.id))throw Error('Registros duplicados');ids.add(r.id);if(!files.has(`fotos/${r.id}.jpg`))throw Error('Falta una foto: '+r.id)}return true}
-async function restoreBackup(file){if(file.size>600*1048576)throw Error('Copia superior a 600 MB. Usa copias más frecuentes.');const files=unzipOurBackup(await file.arrayBuffer());const manifest=JSON.parse(decoder.decode(files.get('registro.json')));checkBackup(manifest,files);const photos=manifest.records.map(r=>({id:r.id,blob:new Blob([files.get(`fotos/${r.id}.jpg`)],{type:'image/jpeg'})}));return new Promise((yes,no)=>{const tx=db.transaction(['devices','records','photos'],'readwrite');for(const name of ['devices','records','photos'])tx.objectStore(name).clear();for(const d of manifest.devices)tx.objectStore('devices').put(d);for(const r of manifest.records)tx.objectStore('records').put(r);for(const p of photos)tx.objectStore('photos').put(p);tx.oncomplete=()=>yes({devices:manifest.devices.length,records:manifest.records.length});tx.onerror=()=>no(tx.error||Error('No se pudo restaurar; falta espacio'));tx.onabort=()=>no(tx.error||Error('Restauración cancelada'))})}
-$('restoreBackup').onclick=async()=>{const file=$('importBackup').files[0];if(!file)return toast('Selecciona primero un archivo ZIP.',true);if(!confirm('ATENCIÓN: se BORRARÁN todos los registros, fotos y equipos actualmente guardados en este teléfono y se reemplazarán por los de la copia. ¿Continuar?'))return;const btn=$('restoreBackup');btn.disabled=true;try{const count=await restoreBackup(file);$('importBackup').value='';localStorage.setItem('rt_last_backup',String(Date.now()));await reload();showTab('today');toast(`Copia restaurada: ${count.records} registros y ${count.devices} equipos.`)}catch(err){toast('Error restaurando copia: '+err.message,true)}finally{btn.disabled=false}};
-async function refreshStorage(){const u=$('storageUsage');if(!navigator.storage?.estimate)return u.textContent='Espacio: información no disponible en este navegador';const {usage,quota}=await navigator.storage.estimate();u.textContent=`Almacenamiento estimado: ${(usage/1048576).toFixed(1)} MB utilizados de ${(quota/1048576).toFixed(0)} MB disponibles para este origen (estimación del navegador).`}
-$('requestPersistent').onclick=async()=>{try{if(!navigator.storage?.persist)throw Error('Este navegador no admite almacenamiento persistente.');const ok=await navigator.storage.persist();toast(ok?'Almacenamiento persistente autorizado por el navegador. Mantén las copias ZIP.':'El navegador no concedió almacenamiento persistente. Realiza copias ZIP frecuentes.',!ok)}catch(err){toast(err.message,true)}};
-$('refresh').onclick=reload;document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showTab(b.dataset.go));
-window.addEventListener('unhandledrejection',e=>toast(e.reason?.message||'Error inesperado',true));
-(async()=>{try{db=await openDB();await reload();const person=localStorage.getItem('rt_last_person');if(person)$('recordPerson').value=person;showTab('today');if(!window.AndroidBridge&&'serviceWorker' in navigator&&['https:','http:'].includes(location.protocol)&& (location.protocol==='https:'||['localhost','127.0.0.1'].includes(location.hostname))){navigator.serviceWorker.register('./sw.js').catch(console.warn)}}catch(err){toast('No se ha podido iniciar el almacenamiento local: '+err.message,true)}})();
+  const DB_NAME = 'ShanTemperaturasDB';
+  const STORE_DEVICES = 'equipos';
+  const STORE_RECORDS = 'registros';
+
+  let dbInstance = null;
+  let devicesCache = [];
+  let recordsCache = [];
+  let currentCompressedPhoto = null;
+  let showOnlyAlertsHistory = false;
+
+  const DEFAULT_DEVICES = [
+    { id: 'eq-1', nombre: 'Cámara Refrigeración 1', tipo: 'REFRIGERACION', minTemp: 0, maxTemp: 4, ubicacion: 'Almacén' },
+    { id: 'eq-2', nombre: 'Mural Lácteos y Charcutería', tipo: 'REFRIGERACION', minTemp: 0, maxTemp: 5, ubicacion: 'Sala de Ventas' },
+    { id: 'eq-3', nombre: 'Mural Carne y Aves', tipo: 'REFRIGERACION', minTemp: 0, maxTemp: 4, ubicacion: 'Carnicería' },
+    { id: 'eq-4', nombre: 'Vitrina Bebidas y Fruta', tipo: 'REFRIGERACION', minTemp: 1, maxTemp: 6, ubicacion: 'Entrada' },
+    { id: 'eq-5', nombre: 'Cámara Congelación Principal', tipo: 'CONGELACION', minTemp: -24, maxTemp: -18, ubicacion: 'Almacén' },
+    { id: 'eq-6', nombre: 'Arcón Congelador Islas', tipo: 'CONGELACION', minTemp: -24, maxTemp: -18, ubicacion: 'Sala de Ventas' }
+  ];
+
+  function getTodayISO() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }
+
+  function formatDisplayDate(isoDate) {
+    if (!isoDate) return '';
+    const p = isoDate.split('-');
+    return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : isoDate;
+  }
+
+  function formatTime(ts) {
+    const d = ts ? new Date(ts) : new Date();
+    return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function showSnackbar(msg) {
+    const bar = document.getElementById('m3Snackbar');
+    if (!bar) return;
+    bar.textContent = msg;
+    bar.classList.remove('hidden');
+    clearTimeout(bar._timer);
+    bar._timer = setTimeout(() => bar.classList.add('hidden'), 3000);
+  }
+
+  async function initDatabase() {
+    let targetDbName = DB_NAME;
+    let targetVersion = 1;
+    if (window.indexedDB && typeof indexedDB.databases === 'function') {
+      try {
+        const dbs = await indexedDB.databases();
+        const found = dbs && dbs.find(d => d.name && (d.name.toLowerCase().includes('temp') || d.name.toLowerCase().includes('shan') || d.name.toLowerCase().includes('registro')));
+        if (found) {
+          targetDbName = found.name;
+          targetVersion = Math.max(1, found.version || 1);
+        }
+      } catch (_) {}
+    }
+
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(targetDbName, targetVersion);
+      req.onupgradeneeded = function (ev) {
+        const db = ev.target.result;
+        if (!db.objectStoreNames.contains(STORE_DEVICES)) db.createObjectStore(STORE_DEVICES, { keyPath: 'id' });
+        if (!db.objectStoreNames.contains(STORE_RECORDS)) db.createObjectStore(STORE_RECORDS, { keyPath: 'id' });
+      };
+      req.onsuccess = function (ev) {
+        const db = ev.target.result;
+        if (!db.objectStoreNames.contains(STORE_DEVICES) || !db.objectStoreNames.contains(STORE_RECORDS)) {
+          const nextVer = db.version + 1;
+          db.close();
+          const upReq = indexedDB.open(targetDbName, nextVer);
+          upReq.onupgradeneeded = e => {
+            const upDb = e.target.result;
+            if (!upDb.objectStoreNames.contains(STORE_DEVICES)) upDb.createObjectStore(STORE_DEVICES, { keyPath: 'id' });
+            if (!upDb.objectStoreNames.contains(STORE_RECORDS)) upDb.createObjectStore(STORE_RECORDS, { keyPath: 'id' });
+          };
+          upReq.onsuccess = e => { dbInstance = e.target.result; resolve(dbInstance); };
+          upReq.onerror = e => reject(e.target.error);
+        } else {
+          dbInstance = db;
+          resolve(dbInstance);
+        }
+      };
+      req.onerror = ev => reject(ev.target.error);
+    });
+  }
+
+  function dbGetAll(storeName) {
+    return new Promise((resolve, reject) => {
+      const req = dbInstance.transaction(storeName, 'readonly').objectStore(storeName).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  function dbPut(storeName, item) {
+    return new Promise((resolve, reject) => {
+      const req = dbInstance.transaction(storeName, 'readwrite').objectStore(storeName).put(item);
+      req.onsuccess = () => resolve(item);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  function dbDelete(storeName, id) {
+    return new Promise((resolve, reject) => {
+      const req = dbInstance.transaction(storeName, 'readwrite').objectStore(storeName).delete(id);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  function normalizeDevice(raw) {
+    const minT = raw.minTemp !== undefined ? Number(raw.minTemp) : (raw.min !== undefined ? Number(raw.min) : 0);
+    const maxT = raw.maxTemp !== undefined ? Number(raw.maxTemp) : (raw.max !== undefined ? Number(raw.max) : 5);
+    return {
+      ...raw,
+      id: String(raw.id || 'eq-' + Date.now()),
+      nombre: raw.nombre || raw.name || 'Equipo Frigorífico',
+      tipo: raw.tipo || (maxT <= -10 ? 'CONGELACION' : 'REFRIGERACION'),
+      minTemp: minT,
+      maxTemp: maxT,
+      ubicacion: raw.ubicacion || raw.location || ''
+    };
+  }
+
+  function normalizeRecord(raw) {
+    const tempVal = Number(raw.temperatura !== undefined ? raw.temperatura : raw.temp);
+    const ts = raw.timestamp || raw.fechaHora || Date.now();
+    const dateStr = raw.fecha || raw.date || new Date(ts).toISOString().split('T')[0];
+    return {
+      ...raw,
+      id: String(raw.id || 'rec-' + ts),
+      equipoId: String(raw.equipoId || raw.deviceId || ''),
+      equipoNombre: raw.equipoNombre || raw.deviceName || '',
+      temperatura: tempVal,
+      fecha: dateStr,
+      timestamp: typeof ts === 'number' ? ts : new Date(ts).getTime(),
+      foto: raw.foto || raw.photo || raw.imagen || null,
+      responsable: raw.responsable || raw.operario || '',
+      observaciones: raw.observaciones || raw.notas || '',
+      fueraDeRango: Boolean(raw.fueraDeRango)
+    };
+  }
+
+  async function loadAllData() {
+    const rawDevices = await dbGetAll(STORE_DEVICES);
+    if (rawDevices.length === 0) {
+      for (const dev of DEFAULT_DEVICES) await dbPut(STORE_DEVICES, dev);
+      devicesCache = [...DEFAULT_DEVICES];
+    } else {
+      devicesCache = rawDevices.map(normalizeDevice);
+    }
+    const rawRecords = await dbGetAll(STORE_RECORDS);
+    recordsCache = rawRecords.map(normalizeRecord).sort((a, b) => b.timestamp - a.timestamp);
+  }
+
+  function isTempOutOfRange(device, tempValue) {
+    if (!device || isNaN(tempValue)) return false;
+    return tempValue < device.minTemp || tempValue > device.maxTemp;
+  }
+
+  function compressImageFile(file, maxWidth = 1024, quality = 0.72) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = () => {
+          let w = img.width, h = img.height;
+          if (w > maxWidth) { h = Math.round((h * maxWidth) / w); w = maxWidth; }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = reject;
+        img.src = e.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function escapeHtml(str) {
+    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function renderAll() {
+    document.getElementById('currentDateBadge').textContent = formatDisplayDate(getTodayISO());
+    renderHomeView();
+    renderRecordFormSelectors();
+    renderHistoryView();
+    renderManageDevicesView();
+  }
+
+  function renderHomeView() {
+    const today = getTodayISO();
+    const todayRecords = recordsCache.filter(r => r.fecha === today);
+    const pendingContainer = document.getElementById('pendingDevicesList');
+    const checkedContainer = document.getElementById('checkedDevicesList');
+    pendingContainer.innerHTML = '';
+    checkedContainer.innerHTML = '';
+
+    let pendingCount = 0, checkedCount = 0, alertsToday = 0;
+
+    devicesCache.forEach(device => {
+      const recs = todayRecords.filter(r => r.equipoId === device.id || r.equipoNombre === device.nombre);
+      if (recs.length === 0) {
+        pendingCount++;
+        const card = document.createElement('div');
+        card.className = 'device-status-card';
+        card.innerHTML = `
+          <div class="device-info-col">
+            <div class="device-title-line"><span>${device.minTemp < 0 ? '❄️' : '🧊'}</span><span>${escapeHtml(device.nombre)}</span></div>
+            <div class="device-meta-line">Rango: ${device.minTemp}°C a ${device.maxTemp}°C ${device.ubicacion ? '• ' + escapeHtml(device.ubicacion) : ''}</div>
+          </div>
+          <button type="button" class="m3-btn m3-btn-tonal m3-btn-sm">🌡️ Registrar</button>
+        `;
+        card.querySelector('button').addEventListener('click', () => openRecordForDevice(device.id));
+        pendingContainer.appendChild(card);
+      } else {
+        checkedCount++;
+        const latest = recs[0];
+        const out = isTempOutOfRange(device, latest.temperatura);
+        if (out) alertsToday++;
+        const card = document.createElement('div');
+        card.className = 'device-status-card' + (out ? ' card-alert-border' : '');
+        card.innerHTML = `
+          <div class="device-info-col">
+            <div class="device-title-line"><span>${out ? '🚨' : '✅'}</span><span>${escapeHtml(device.nombre)}</span></div>
+            <div class="device-meta-line">Hora: ${formatTime(latest.timestamp)} ${latest.responsable ? '• ' + escapeHtml(latest.responsable) : ''}</div>
+          </div>
+          <div class="temp-display-badge ${out ? 'temp-alert' : 'temp-ok'}">${latest.temperatura.toFixed(1)} °C</div>
+        `;
+        card.addEventListener('click', () => openRecordForDevice(device.id));
+        checkedContainer.appendChild(card);
+      }
+    });
+
+    if (!pendingCount) pendingContainer.innerHTML = `<div class="empty-placeholder">🎉 ¡Todos los equipos han sido revisados hoy!</div>`;
+    if (!checkedCount) checkedContainer.innerHTML = `<div class="empty-placeholder">Aún no se ha registrado ningún equipo hoy.</div>`;
+
+    const total = devicesCache.length;
+    document.getElementById('kpiTotalDevices').textContent = total;
+    document.getElementById('kpiPendingToday').textContent = pendingCount;
+    document.getElementById('kpiCheckedToday').textContent = checkedCount;
+    document.getElementById('kpiAlertsToday').textContent = alertsToday;
+    document.getElementById('dailyProgressBadge').textContent = `${total ? Math.round((checkedCount / total) * 100) : 0}%`;
+    document.getElementById('pendingCountChip').textContent = pendingCount;
+    document.getElementById('checkedCountChip').textContent = checkedCount;
+  }
+
+  function renderRecordFormSelectors() {
+    const recSelect = document.getElementById('recordDeviceSelect');
+    const histSelect = document.getElementById('historyFilterDevice');
+    const curRec = recSelect.value, curHist = histSelect.value;
+
+    recSelect.innerHTML = '';
+    devicesCache.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = `${d.nombre} (${d.minTemp}°C a ${d.maxTemp}°C)`;
+      recSelect.appendChild(opt);
+    });
+    if (curRec && devicesCache.some(d => d.id === curRec)) recSelect.value = curRec;
+
+    histSelect.innerHTML = '<option value="ALL">Todos los equipos</option>';
+    devicesCache.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = d.nombre;
+      histSelect.appendChild(opt);
+    });
+    if (curHist) histSelect.value = curHist;
+    updateSelectedDeviceRangeBanner();
+  }
+
+  function getSelectedRecordDevice() {
+    const id = document.getElementById('recordDeviceSelect').value;
+    return devicesCache.find(d => d.id === id) || devicesCache[0] || null;
+  }
+
+  function updateSelectedDeviceRangeBanner() {
+    const dev = getSelectedRecordDevice();
+    document.getElementById('selectedDeviceRangeInfo').textContent = dev
+      ? `Rango seguro permitido: de ${dev.minTemp} °C a ${dev.maxTemp} °C`
+      : 'No hay equipos configurados.';
+    validateLiveTemperatureInput();
+  }
+
+  function validateLiveTemperatureInput() {
+    const dev = getSelectedRecordDevice();
+    const rawVal = document.getElementById('recordTempInput').value;
+    const container = document.getElementById('tempInputContainer');
+    const banner = document.getElementById('tempWarningBanner');
+    if (!dev || rawVal === '' || isNaN(Number(rawVal))) {
+      container.classList.remove('is-out-of-range');
+      banner.classList.add('hidden');
+      return;
+    }
+    const temp = parseFloat(rawVal);
+    if (isTempOutOfRange(dev, temp)) {
+      container.classList.add('is-out-of-range');
+      banner.classList.remove('hidden');
+      document.getElementById('tempWarningText').textContent =
+        `Valor: ${temp.toFixed(1)}°C (Límite de ${dev.nombre}: ${dev.minTemp}°C a ${dev.maxTemp}°C).`;
+    } else {
+      container.classList.remove('is-out-of-range');
+      banner.classList.add('hidden');
+    }
+  }
+
+  function renderHistoryView() {
+    const devFilter = document.getElementById('historyFilterDevice').value;
+    const dateFilter = document.getElementById('historyFilterDate').value;
+    const listEl = document.getElementById('historyRecordsList');
+    listEl.innerHTML = '';
+
+    const filtered = recordsCache.filter(rec => {
+      const devObj = devicesCache.find(d => d.id === rec.equipoId || d.nombre === rec.equipoNombre);
+      const out = devObj ? isTempOutOfRange(devObj, rec.temperatura) : rec.fueraDeRango;
+      if (devFilter && devFilter !== 'ALL' && rec.equipoId !== devFilter) return false;
+      if (dateFilter && rec.fecha !== dateFilter) return false;
+      if (showOnlyAlertsHistory && !out) return false;
+      return true;
+    });
+
+    document.getElementById('historyResultsCount').textContent = `${filtered.length} registros encontrados`;
+    if (!filtered.length) {
+      listEl.innerHTML = `<div class="empty-placeholder">No hay registros para los filtros seleccionados.</div>`;
+      return;
+    }
+
+    filtered.forEach(rec => {
+      const devObj = devicesCache.find(d => d.id === rec.equipoId || d.nombre === rec.equipoNombre);
+      const out = devObj ? isTempOutOfRange(devObj, rec.temperatura) : rec.fueraDeRango;
+      const devName = devObj ? devObj.nombre : (rec.equipoNombre || 'Equipo');
+      const card = document.createElement('div');
+      card.className = 'history-card' + (out ? ' history-alert' : '');
+      card.innerHTML = `
+        ${rec.foto ? `<img src="${rec.foto}" class="history-thumb" alt="Foto" />` : `<div class="history-thumb-placeholder">🌡️</div>`}
+        <div class="history-body">
+          <div class="history-top-row">
+            <span class="history-device-name">${escapeHtml(devName)}</span>
+            <span class="temp-display-badge ${out ? 'temp-alert' : 'temp-ok'}">${Number(rec.temperatura).toFixed(1)} °C</span>
+          </div>
+          <div class="history-meta">📅 ${formatDisplayDate(rec.fecha)} • 🕒 ${formatTime(rec.timestamp)} ${rec.responsable ? '• 👤 ' + escapeHtml(rec.responsable) : ''}</div>
+          ${out ? '<div style="color:#ba1a1a;font-size:12px;font-weight:700;margin-top:4px;">⚠️ TEMPERATURA FUERA DE RANGO</div>' : ''}
+          ${rec.observaciones ? `<div class="history-notes">📝 ${escapeHtml(rec.observaciones)}</div>` : ''}
+          <div style="text-align:right;margin-top:8px;">
+            <button type="button" class="m3-btn m3-btn-danger-outline m3-btn-sm" data-del="${rec.id}">🗑️ Eliminar</button>
+          </div>
+        </div>
+      `;
+      const imgEl = card.querySelector('.history-thumb');
+      if (imgEl) imgEl.addEventListener('click', () => {
+        document.getElementById('photoViewerImg').src = rec.foto;
+        document.getElementById('photoViewerCaption').textContent = `${devName} (${Number(rec.temperatura).toFixed(1)}°C)`;
+        document.getElementById('photoViewerModal').classList.remove('hidden');
+      });
+      card.querySelector('[data-del]').addEventListener('click', async () => {
+        if (confirm('¿Eliminar este registro?')) {
+          await dbDelete(STORE_RECORDS, rec.id);
+          await loadAllData();
+          renderAll();
+          showSnackbar('Registro eliminado');
+        }
+      });
+      listEl.appendChild(card);
+    });
+  }
+
+  function renderManageDevicesView() {
+    const container = document.getElementById('manageDevicesList');
+    container.innerHTML = '';
+    devicesCache.forEach(dev => {
+      const row = document.createElement('div');
+      row.className = 'manage-device-item';
+      row.innerHTML = `
+        <div class="device-info-col">
+          <div class="device-title-line"><span>${dev.minTemp < 0 ? '❄️' : '🧊'}</span><span>${escapeHtml(dev.nombre)}</span></div>
+          <div class="device-meta-line">Rango: <strong>${dev.minTemp}°C a ${dev.maxTemp}°C</strong> ${dev.ubicacion ? '• ' + escapeHtml(dev.ubicacion) : ''}</div>
+        </div>
+        <div class="manage-actions">
+          <button type="button" class="m3-btn m3-btn-tonal m3-btn-sm" data-edit>✏️</button>
+          <button type="button" class="m3-btn m3-btn-danger-outline m3-btn-sm" data-del>🗑️</button>
+        </div>
+      `;
+      row.querySelector('[data-edit]').addEventListener('click', () => openDeviceModal(dev));
+      row.querySelector('[data-del]').addEventListener('click', async () => {
+        if (confirm(`¿Eliminar "${dev.nombre}"?`)) {
+          await dbDelete(STORE_DEVICES, dev.id);
+          await loadAllData();
+          renderAll();
+          showSnackbar('Equipo eliminado');
+        }
+      });
+      container.appendChild(row);
+    });
+  }
+
+  function switchView(targetId) {
+    document.querySelectorAll('.view-section').forEach(s => s.classList.toggle('active', s.id === targetId));
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.target === targetId));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function openRecordForDevice(deviceId) {
+    switchView('view-record');
+    if (deviceId) {
+      document.getElementById('recordDeviceSelect').value = deviceId;
+      updateSelectedDeviceRangeBanner();
+    }
+  }
+
+  function openDeviceModal(device = null) {
+    document.getElementById('deviceModalTitle').textContent = device ? 'Editar Equipo' : 'Añadir Equipo';
+    document.getElementById('deviceIdInput').value = device ? device.id : '';
+    document.getElementById('deviceNameInput').value = device ? device.nombre : '';
+    document.getElementById('deviceTypeSelect').value = device ? (device.tipo || 'PERSONALIZADO') : 'REFRIGERACION';
+    document.getElementById('deviceMinTempInput').value = device ? device.minTemp : 0;
+    document.getElementById('deviceMaxTempInput').value = device ? device.maxTemp : 4;
+    document.getElementById('deviceLocationInput').value = device ? (device.ubicacion || '') : '';
+    document.getElementById('deviceModal').classList.remove('hidden');
+  }
+
+  // Motor ZIP nativo JS
+  const CRC_TABLE = (function () {
+    const t = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[i] = c >>> 0;
+    }
+    return t;
+  })();
+
+  function crc32(u8) {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < u8.length; i++) crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ u8[i]) & 0xFF];
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function createStoredZip(files) {
+    const enc = new TextEncoder(), localParts = [], centralParts = [];
+    let offset = 0;
+    files.forEach(f => {
+      const nameB = enc.encode(f.name);
+      const dataB = f.data instanceof Uint8Array ? f.data : enc.encode(String(f.data));
+      const crc = crc32(dataB), size = dataB.length;
+      const lh = new Uint8Array(30 + nameB.length), lv = new DataView(lh.buffer);
+      lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true); lv.setUint32(14, crc, true);
+      lv.setUint32(18, size, true); lv.setUint32(22, size, true); lv.setUint16(26, nameB.length, true);
+      lh.set(nameB, 30);
+      localParts.push(lh, dataB);
+
+      const ch = new Uint8Array(46 + nameB.length), cv = new DataView(ch.buffer);
+      cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
+      cv.setUint32(16, crc, true); cv.setUint32(20, size, true); cv.setUint32(24, size, true);
+      cv.setUint16(28, nameB.length, true); cv.setUint32(42, offset, true);
+      ch.set(nameB, 46);
+      centralParts.push(ch);
+      offset += lh.length + size;
+    });
+    const cSize = centralParts.reduce((a, p) => a + p.length, 0);
+    const eocd = new Uint8Array(22), ev = new DataView(eocd.buffer);
+    ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, files.length, true);
+    ev.setUint16(10, files.length, true); ev.setUint32(12, cSize, true); ev.setUint32(16, offset, true);
+    return new Blob([...localParts, ...centralParts, eocd], { type: 'application/zip' });
+  }
+
+  async function extractStoredZip(buf) {
+    const bytes = new Uint8Array(buf), view = new DataView(buf), dec = new TextDecoder(), out = {};
+    let pos = 0;
+    while (pos + 30 <= bytes.length) {
+      if (view.getUint32(pos, true) !== 0x04034b50) break;
+      const method = view.getUint16(pos + 8, true), cSize = view.getUint32(pos + 18, true);
+      const nLen = view.getUint16(pos + 26, true), eLen = view.getUint16(pos + 28, true);
+      const name = dec.decode(bytes.subarray(pos + 30, pos + 30 + nLen));
+      const start = pos + 30 + nLen + eLen, data = bytes.subarray(start, start + cSize);
+      if (method === 0) out[name] = data;
+      pos = start + cSize;
+    }
+    return out;
+  }
+
+  async function exportBackupZip() {
+    const statusEl = document.getElementById('backupStatusText');
+    try {
+      const payload = JSON.stringify({ equipos: devicesCache, registros: recordsCache }, null, 2);
+      const zipBlob = createStoredZip([{ name: 'backup_datos.json', data: payload }]);
+      const fileName = `SHANFOODSGROUP_Backup_${getTodayISO()}.zip`;
+      if (window.Android && typeof window.Android.saveBackupZip === 'function') {
+        const r = new FileReader();
+        r.onloadend = () => window.Android.saveBackupZip(r.result.split(',')[1], fileName);
+        r.readAsDataURL(zipBlob);
+      } else {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(zipBlob);
+        a.download = fileName;
+        a.click();
+      }
+      statusEl.textContent = `✅ Copia exportada (${fileName})`;
+      showSnackbar('Copia ZIP generada');
+    } catch (e) {
+      statusEl.textContent = '❌ Error: ' + e.message;
+    }
+  }
+
+  async function importBackupZip(file) {
+    const statusEl = document.getElementById('backupStatusText');
+    try {
+      const files = await extractStoredZip(await file.arrayBuffer());
+      const jsonKey = Object.keys(files).find(k => k.endsWith('.json'));
+      if (!jsonKey) throw new Error('Archivo JSON no encontrado en el ZIP');
+      const data = JSON.parse(new TextDecoder().decode(files[jsonKey]));
+      for (const d of (data.equipos || data.devices || [])) await dbPut(STORE_DEVICES, normalizeDevice(d));
+      for (const r of (data.registros || data.records || [])) await dbPut(STORE_RECORDS, normalizeRecord(r));
+      await loadAllData();
+      renderAll();
+      statusEl.textContent = '✅ Copia restaurada correctamente';
+      showSnackbar('Datos restaurados');
+    } catch (e) {
+      statusEl.textContent = '❌ Error al restaurar: ' + e.message;
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => switchView(b.dataset.target)));
+    document.getElementById('recordDeviceSelect').addEventListener('change', updateSelectedDeviceRangeBanner);
+    const tempInput = document.getElementById('recordTempInput');
+    tempInput.addEventListener('input', validateLiveTemperatureInput);
+    document.getElementById('btnTempMinus').addEventListener('click', () => { tempInput.value = ((parseFloat(tempInput.value) || 0) - 0.5).toFixed(1); validateLiveTemperatureInput(); });
+    document.getElementById('btnTempPlus').addEventListener('click', () => { tempInput.value = ((parseFloat(tempInput.value) || 0) + 0.5).toFixed(1); validateLiveTemperatureInput(); });
+    document.getElementById('btnToggleSign').addEventListener('click', () => {
+      if (!tempInput.value) { tempInput.value = '-'; return; }
+      const v = parseFloat(tempInput.value);
+      if (!isNaN(v)) { tempInput.value = (-v).toFixed(1); validateLiveTemperatureInput(); }
+    });
+
+    const photoInput = document.getElementById('recordPhotoInput');
+    document.getElementById('photoEmptyState').addEventListener('click', () => photoInput.click());
+    document.getElementById('btnRetakePhoto').addEventListener('click', () => photoInput.click());
+    document.getElementById('btnRemovePhoto').addEventListener('click', () => {
+      currentCompressedPhoto = null; photoInput.value = '';
+      document.getElementById('photoPreviewState').classList.add('hidden');
+      document.getElementById('photoEmptyState').classList.remove('hidden');
+    });
+    photoInput.addEventListener('change', async e => {
+      if (!e.target.files || !e.target.files[0]) return;
+      currentCompressedPhoto = await compressImageFile(e.target.files[0], 1024, 0.72);
+      document.getElementById('recordPhotoPreview').src = currentCompressedPhoto;
+      document.getElementById('photoEmptyState').classList.add('hidden');
+      document.getElementById('photoPreviewState').classList.remove('hidden');
+    });
+
+    document.getElementById('recordForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const dev = getSelectedRecordDevice();
+      const tempVal = parseFloat(tempInput.value);
+      if (!dev || isNaN(tempVal)) return showSnackbar('Introduce una temperatura válida');
+      const out = isTempOutOfRange(dev, tempVal);
+      await dbPut(STORE_RECORDS, {
+        id: 'rec-' + Date.now(),
+        equipoId: dev.id,
+        equipoNombre: dev.nombre,
+        temperatura: tempVal,
+        fecha: getTodayISO(),
+        timestamp: Date.now(),
+        foto: currentCompressedPhoto,
+        responsable: document.getElementById('recordEmployeeInput').value.trim(),
+        observaciones: document.getElementById('recordNotesInput').value.trim(),
+        fueraDeRango: out
+      });
+      await loadAllData();
+      tempInput.value = '';
+      document.getElementById('recordNotesInput').value = '';
+      currentCompressedPhoto = null;
+      document.getElementById('photoPreviewState').classList.add('hidden');
+      document.getElementById('photoEmptyState').classList.remove('hidden');
+      validateLiveTemperatureInput();
+      renderAll();
+      showSnackbar(out ? '⚠️ Guardado con ALERTA' : '✅ Registro guardado');
+      switchView('view-home');
+    });
+
+    document.getElementById('historyFilterDevice').addEventListener('change', renderHistoryView);
+    document.getElementById('historyFilterDate').addEventListener('change', renderHistoryView);
+    document.getElementById('btnFilterToday').addEventListener('click', () => { document.getElementById('historyFilterDate').value = getTodayISO(); showOnlyAlertsHistory = false; renderHistoryView(); });
+    document.getElementById('btnFilterAlerts').addEventListener('click', () => { showOnlyAlertsHistory = !showOnlyAlertsHistory; renderHistoryView(); });
+    document.getElementById('btnFilterClear').addEventListener('click', () => { document.getElementById('historyFilterDevice').value = 'ALL'; document.getElementById('historyFilterDate').value = ''; showOnlyAlertsHistory = false; renderHistoryView(); });
+
+    document.getElementById('btnOpenAddDevice').addEventListener('click', () => openDeviceModal(null));
+    document.getElementById('btnCloseDeviceModal').addEventListener('click', () => document.getElementById('deviceModal').classList.add('hidden'));
+    document.getElementById('btnCancelDeviceModal').addEventListener('click', () => document.getElementById('deviceModal').classList.add('hidden'));
+    document.getElementById('deviceTypeSelect').addEventListener('change', e => {
+      if (e.target.value === 'REFRIGERACION') { document.getElementById('deviceMinTempInput').value = 0; document.getElementById('deviceMaxTempInput').value = 4; }
+      else if (e.target.value === 'CONGELACION') { document.getElementById('deviceMinTempInput').value = -24; document.getElementById('deviceMaxTempInput').value = -18; }
+    });
+    document.getElementById('deviceForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      await dbPut(STORE_DEVICES, {
+        id: document.getElementById('deviceIdInput').value || ('eq-' + Date.now()),
+        nombre: document.getElementById('deviceNameInput').value.trim(),
+        tipo: document.getElementById('deviceTypeSelect').value,
+        minTemp: parseFloat(document.getElementById('deviceMinTempInput').value),
+        maxTemp: parseFloat(document.getElementById('deviceMaxTempInput').value),
+        ubicacion: document.getElementById('deviceLocationInput').value.trim()
+      });
+      await loadAllData();
+      renderAll();
+      document.getElementById('deviceModal').classList.add('hidden');
+      showSnackbar('Equipo guardado');
+    });
+
+    document.getElementById('btnClosePhotoViewer').addEventListener('click', () => document.getElementById('photoViewerModal').classList.add('hidden'));
+    document.getElementById('btnExportZip').addEventListener('click', exportBackupZip);
+    document.getElementById('importZipInput').addEventListener('change', e => { if (e.target.files[0]) importBackupZip(e.target.files[0]); });
+
+    await initDatabase();
+    await loadAllData();
+    renderAll();
+  });
+})();

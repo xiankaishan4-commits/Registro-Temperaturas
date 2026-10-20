@@ -1,58 +1,304 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#124f45">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Temperaturas">
-<meta name="description" content="Control diario offline de temperaturas frigoríficas, con fotografías y copias de seguridad.">
-<link rel="manifest" href="./manifest.webmanifest">
-<link rel="apple-touch-icon" href="./icon-192.png">
-<link rel="icon" href="./icon-192.png">
-<link rel="stylesheet" href="./styles.css">
-<title>Control de Temperaturas · SHANFOODSGROUP</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#005AC1" />
+  <title>SHANFOODSGROUP — Registro de Temperaturas</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-<header class="top"><div class="shell top-inner"><div class="brand-mark">❄</div><div class="brand"><strong>CONTROL DE TEMPERATURAS</strong><span>SHANFOODSGROUP · Registro local</span></div><span class="top-status" id="onlineBadge">En este móvil</span></div></header>
-<main class="shell">
-<div id="notice" class="notice hidden" role="status"></div>
-<div id="backupReminder" class="banner hidden"><strong>⚠ Copia de seguridad pendiente</strong><span>Los datos están guardados solo en este móvil. Haz una copia ZIP y súbela a Google Drive.</span><button type="button" class="tiny" data-go="backup">Ir a copias</button></div>
-<nav class="tabs" aria-label="Secciones">
-<button type="button" data-tab="today" class="active">⌂ <span>Hoy</span></button>
-<button type="button" data-tab="new">＋ <span>Registrar</span></button>
-<button type="button" data-tab="history">▤ <span>Historial</span></button>
-<button type="button" data-tab="devices">▦ <span>Equipos</span></button>
-<button type="button" data-tab="backup">⇪ <span>Copias</span></button>
-</nav>
-<section id="today" class="tab-view">
- <div class="section-heading"><div><p class="eyebrow">CONTROL DIARIO</p><h1>Revisión de hoy</h1><p class="muted" id="todayDate"></p></div><button type="button" class="outline small" id="refresh">Actualizar</button></div>
- <div class="stats"><div class="stat"><b id="countDone">0</b><span>Revisados</span></div><div class="stat"><b id="countPending">0</b><span>Pendientes</span></div><div class="stat"><b id="countAlert">0</b><span>Incidencias</span></div></div>
- <div class="card"><div class="card-heading"><h2>Equipos activos</h2><span class="muted">Última lectura del día</span></div><div id="todayItems" class="item-list"></div></div>
-</section>
-<section id="new" class="tab-view hidden">
- <div class="section-heading"><div><p class="eyebrow">REGISTRO FOTOGRÁFICO</p><h1>Nueva lectura</h1><p class="muted">Se guarda en este dispositivo, incluso sin internet.</p></div></div>
- <div class="card"><form id="recordForm">
- <label for="recordDevice">Equipo <em>*</em></label><select id="recordDevice" required></select>
- <div class="two"><div><label for="recordTemp">Temperatura (°C) <em>*</em></label><input id="recordTemp" type="number" step="0.1" min="-100" max="100" inputmode="decimal" placeholder="Ej.: -18,5" required></div><div><label for="recordPerson">Responsable <em>*</em></label><input id="recordPerson" type="text" maxlength="70" placeholder="Nombre" autocomplete="name" required></div></div>
- <label for="recordPhoto">Foto del termómetro <em>*</em></label><input id="recordPhoto" type="file" accept="image/*" capture="environment" required><p class="hint">La foto se reduce de tamaño antes de guardarse para ahorrar espacio.</p><img id="preview" class="preview hidden" alt="Vista previa de la fotografía">
- <div id="rangeHelp" class="range-note"></div>
- <label for="recordNotes">Observaciones / medidas correctoras</label><textarea id="recordNotes" rows="3" maxlength="1000" placeholder="Obligatorio si está fuera del rango permitido"></textarea>
- <button class="primary full" id="saveRecord" type="submit">Guardar lectura y foto</button><p class="hint center">La fecha y hora se toman del reloj del teléfono.</p>
- </form></div>
-</section>
-<section id="history" class="tab-view hidden"><div class="section-heading"><div><p class="eyebrow">TRAZABILIDAD</p><h1>Historial</h1><p class="muted">Registros y fotos guardados en el teléfono.</p></div></div>
-<div class="card"><div class="two"><div><label for="filterDate">Fecha</label><input id="filterDate" type="date"></div><div><label for="filterDevice">Equipo</label><select id="filterDevice"></select></div></div><div class="btn-row"><button type="button" class="outline" id="clearFilters">Limpiar filtros</button><button type="button" class="outline" id="exportCsv">Exportar CSV</button></div><p class="hint">El CSV no incluye imágenes. La copia ZIP sí incluye todas las fotos.</p></div><div class="card"><div id="historyItems" class="item-list"></div></div>
-</section>
-<section id="devices" class="tab-view hidden"><div class="section-heading"><div><p class="eyebrow">CONFIGURACIÓN</p><h1>Equipos frigoríficos</h1></div></div><div class="card"><h2 id="deviceFormTitle">Añadir equipo</h2><form id="deviceForm"><input id="deviceId" type="hidden"><label for="deviceName">Nombre o código <em>*</em></label><input id="deviceName" type="text" maxlength="100" placeholder="Ej.: AHT 01 · Congelados" required><label for="deviceType">Tipo</label><select id="deviceType"><option>Refrigeración</option><option>Congelación</option><option>Cámara frigorífica</option><option>Otro</option></select><div class="two"><div><label for="deviceMin">Mínimo (°C)</label><input id="deviceMin" type="number" step="0.1" value="0" min="-100" max="100" required></div><div><label for="deviceMax">Máximo (°C)</label><input id="deviceMax" type="number" step="0.1" value="5" min="-100" max="100" required></div></div><label class="check"><input id="deviceActive" type="checkbox" checked> Equipo activo</label><div class="btn-row"><button type="submit" class="primary" id="saveDevice">Guardar equipo</button><button type="button" class="outline" id="resetDevice">Cancelar</button></div></form></div><div class="card"><h2>Lista de equipos</h2><div id="deviceItems" class="item-list"></div></div></section>
-<section id="backup" class="tab-view hidden"><div class="section-heading"><div><p class="eyebrow">SEGURIDAD DE DATOS</p><h1>Copias y traslado</h1><p class="muted">Sin cuentas, sin base de datos en internet.</p></div></div>
-<div class="card tinted"><div class="backup-icon">▣</div><h2>Todo está guardado en este teléfono</h2><p>Las temperaturas, los equipos y las fotografías se almacenan localmente. Puedes seguir registrando sin conexión. Si pierdes el móvil o se borran los datos del navegador, podrías perderlo todo.</p><p><strong>Recomendación:</strong> copia ZIP al menos una vez por semana y guárdala en Google Drive u otro dispositivo.</p><div class="meta" id="storageUsage">Consultando almacenamiento…</div><div class="meta" id="lastBackup">Última copia: nunca</div></div>
-<div class="card"><h2>1. Crear copia completa (ZIP)</h2><p class="muted">Incluye equipos, registros y fotografías. Sirve para restaurar en otro móvil.</p><button type="button" class="primary full" id="downloadBackup">Descargar copia ZIP</button><button type="button" class="outline full space-top" id="shareBackup">Compartir / Guardar en Drive</button><p class="hint">Compartir funciona si el móvil y el navegador permiten compartir archivos. Si no aparece Google Drive, descarga el ZIP y súbelo manualmente desde la app Drive.</p></div>
-<div class="card"><h2>2. Restaurar en otro teléfono</h2><p class="muted">Abre esta aplicación en el otro móvil y selecciona el archivo ZIP. <strong>La restauración reemplaza todo lo que haya guardado allí.</strong></p><label for="importBackup">Seleccionar copia ZIP</label><input id="importBackup" type="file" accept=".zip,application/zip"><button type="button" class="danger-btn full space-top" id="restoreBackup">Restaurar copia (reemplazar datos)</button></div>
-<div class="card"><h2>3. Almacenamiento del dispositivo</h2><p class="muted">Solicitar almacenamiento persistente reduce el riesgo de limpieza automática, pero no sustituye las copias de seguridad.</p><button type="button" class="outline" id="requestPersistent">Proteger almacenamiento local</button><p class="hint">No elimines los datos del navegador ni desinstales la aplicación sin antes exportar un ZIP.</p></div>
-</section>
-</main>
-<dialog id="photoDialog"><div class="dialog-heading"><strong>Foto del registro</strong><button type="button" class="outline small" id="closePhoto">Cerrar</button></div><img id="fullPhoto" alt="Fotografía del termómetro"><div class="muted" id="photoCaption"></div></dialog>
-<script src="./app.js" defer></script>
-</body></html>
+  <!-- Top App Bar (Material Design 3) -->
+  <header class="m3-top-bar">
+    <div class="top-bar-brand">
+      <div class="brand-icon" aria-hidden="true">❄️</div>
+      <div class="brand-text">
+        <span class="brand-subtitle">SHANFOODSGROUP</span>
+        <h1 class="brand-title">Control de Temperaturas</h1>
+      </div>
+    </div>
+    <div class="top-bar-actions">
+      <span id="currentDateBadge" class="date-pill">--/--/----</span>
+    </div>
+  </header>
+
+  <main class="m3-main-container">
+    <!-- VISTA 1: INICIO (HOY) -->
+    <section id="view-home" class="view-section active">
+      <div class="m3-card summary-hero-card">
+        <div class="summary-header">
+          <div>
+            <h2 class="summary-title">Estado del Día</h2>
+            <p class="summary-subtitle">Resumen de controles de frío de hoy</p>
+          </div>
+          <div id="dailyProgressBadge" class="progress-circle">0%</div>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi-box kpi-neutral">
+            <span class="kpi-value" id="kpiTotalDevices">0</span>
+            <span class="kpi-label">Equipos</span>
+          </div>
+          <div class="kpi-box kpi-pending">
+            <span class="kpi-value" id="kpiPendingToday">0</span>
+            <span class="kpi-label">Pendientes</span>
+          </div>
+          <div class="kpi-box kpi-ok">
+            <span class="kpi-value" id="kpiCheckedToday">0</span>
+            <span class="kpi-label">Revisados</span>
+          </div>
+          <div class="kpi-box kpi-alert">
+            <span class="kpi-value" id="kpiAlertsToday">0</span>
+            <span class="kpi-label">Alertas</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-title-row">
+          <h3 class="section-heading">
+            <span class="status-dot dot-pending"></span>
+            Pendientes de revisar hoy
+          </h3>
+          <span id="pendingCountChip" class="m3-chip chip-warning">0</span>
+        </div>
+        <div id="pendingDevicesList" class="device-cards-grid"></div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-title-row">
+          <h3 class="section-heading">
+            <span class="status-dot dot-ok"></span>
+            Equipos revisados hoy
+          </h3>
+          <span id="checkedCountChip" class="m3-chip chip-success">0</span>
+        </div>
+        <div id="checkedDevicesList" class="device-cards-grid"></div>
+      </div>
+    </section>
+
+    <!-- VISTA 2: REGISTRAR TEMPERATURA -->
+    <section id="view-record" class="view-section">
+      <div class="m3-card form-card">
+        <div class="card-header-row">
+          <h2 class="card-title">Nuevo Registro de Temperatura</h2>
+          <p class="card-helper">Selecciona el equipo, introduce la temperatura y toma una foto del visor.</p>
+        </div>
+
+        <form id="recordForm" novalidate>
+          <div class="m3-field">
+            <label for="recordDeviceSelect" class="m3-label">1. Equipo Frigorífico / Congelador *</label>
+            <select id="recordDeviceSelect" class="m3-select" required></select>
+            <div id="selectedDeviceRangeInfo" class="range-info-banner">
+              Rango permitido: -- °C a -- °C
+            </div>
+          </div>
+
+          <div class="m3-field temp-highlight-box" id="tempInputContainer">
+            <label for="recordTempInput" class="m3-label">2. Temperatura Actual (°C) *</label>
+            <div class="temp-stepper-row">
+              <button type="button" class="stepper-btn" id="btnTempMinus" aria-label="Bajar 0.5 grados">−0.5</button>
+              <button type="button" class="stepper-btn sign-btn" id="btnToggleSign" aria-label="Cambiar signo">±</button>
+              <div class="temp-input-wrapper">
+                <input
+                  type="number"
+                  id="recordTempInput"
+                  class="temp-giant-input"
+                  step="0.1"
+                  inputmode="decimal"
+                  placeholder="0.0"
+                  required
+                />
+                <span class="temp-unit">°C</span>
+              </div>
+              <button type="button" class="stepper-btn" id="btnTempPlus" aria-label="Subir 0.5 grados">+0.5</button>
+            </div>
+
+            <div id="tempWarningBanner" class="alert-warning-banner hidden" role="alert">
+              <div class="alert-icon">⚠️</div>
+              <div class="alert-content">
+                <strong>¡ALERTA! TEMPERATURA FUERA DE RANGO</strong>
+                <p id="tempWarningText">El valor introducido supera los límites de seguridad del equipo.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="m3-field">
+            <label class="m3-label">3. Fotografía del Visor / Termómetro</label>
+            <input
+              type="file"
+              id="recordPhotoInput"
+              accept="image/*"
+              capture="environment"
+              class="hidden-file-input"
+            />
+            <div id="photoCaptureZone" class="photo-capture-card">
+              <div id="photoEmptyState" class="photo-empty-state">
+                <div class="camera-circle-icon">📷</div>
+                <span class="camera-main-text">Tocar para tomar fotografía</span>
+                <span class="camera-sub-text">Compresión automática optimizada</span>
+              </div>
+              <div id="photoPreviewState" class="photo-preview-state hidden">
+                <img id="recordPhotoPreview" src="" alt="Vista previa de foto" />
+                <div class="photo-preview-actions">
+                  <button type="button" id="btnRetakePhoto" class="m3-btn m3-btn-tonal">🔄 Repetir foto</button>
+                  <button type="button" id="btnRemovePhoto" class="m3-btn m3-btn-danger-outline">🗑️ Quitar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="m3-field-row">
+            <div class="m3-field">
+              <label for="recordEmployeeInput" class="m3-label">Operario / Responsable</label>
+              <input type="text" id="recordEmployeeInput" class="m3-input" placeholder="Nombre o iniciales" />
+            </div>
+            <div class="m3-field">
+              <label for="recordNotesInput" class="m3-label">Observaciones / Acción Correctiva</label>
+              <input type="text" id="recordNotesInput" class="m3-input" placeholder="Ej. Desescarche, carga de género..." />
+            </div>
+          </div>
+
+          <button type="submit" id="btnSaveRecord" class="m3-btn m3-btn-primary m3-btn-xl">
+            💾 GUARDAR REGISTRO DE TEMPERATURA
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- VISTA 3: HISTORIAL -->
+    <section id="view-history" class="view-section">
+      <div class="m3-card filter-card">
+        <h2 class="card-title">Consulta de Historial</h2>
+        <div class="filter-grid">
+          <div class="m3-field">
+            <label for="historyFilterDevice" class="m3-label">Filtrar por Equipo</label>
+            <select id="historyFilterDevice" class="m3-select">
+              <option value="ALL">Todos los equipos</option>
+            </select>
+          </div>
+          <div class="m3-field">
+            <label for="historyFilterDate" class="m3-label">Filtrar por Fecha</label>
+            <input type="date" id="historyFilterDate" class="m3-input" />
+          </div>
+        </div>
+        <div class="filter-chips-row">
+          <button type="button" id="btnFilterToday" class="m3-btn m3-btn-tonal m3-btn-sm">📅 Hoy</button>
+          <button type="button" id="btnFilterAlerts" class="m3-btn m3-btn-danger-outline m3-btn-sm">🚨 Solo Alertas</button>
+          <button type="button" id="btnFilterClear" class="m3-btn m3-btn-outline m3-btn-sm">🔄 Ver Todos</button>
+        </div>
+      </div>
+
+      <div class="history-results-bar">
+        <span id="historyResultsCount">0 registros encontrados</span>
+      </div>
+      <div id="historyRecordsList" class="history-list"></div>
+    </section>
+
+    <!-- VISTA 4: EQUIPOS Y COPIA ZIP -->
+    <section id="view-devices" class="view-section">
+      <div class="m3-card">
+        <div class="card-header-flex">
+          <div>
+            <h2 class="card-title">Equipos Frigoríficos</h2>
+            <p class="card-helper">Añade, modifica o elimina cámaras, murales y congeladores.</p>
+          </div>
+          <button type="button" id="btnOpenAddDevice" class="m3-btn m3-btn-primary">➕ Nuevo Equipo</button>
+        </div>
+        <div id="manageDevicesList" class="manage-devices-list"></div>
+      </div>
+
+      <div class="m3-card backup-card">
+        <div class="card-header-row">
+          <h2 class="card-title">📦 Copia de Seguridad (ZIP)</h2>
+          <p class="card-helper">Guarda o restaura todos los equipos, registros y fotos en un archivo ZIP local.</p>
+        </div>
+        <div class="backup-actions-grid">
+          <button type="button" id="btnExportZip" class="m3-btn m3-btn-primary backup-btn">📤 Exportar Copia ZIP</button>
+          <label for="importZipInput" class="m3-btn m3-btn-tonal backup-btn">📥 Restaurar desde ZIP</label>
+          <input type="file" id="importZipInput" accept=".zip,application/zip" class="hidden-file-input" />
+        </div>
+        <p id="backupStatusText" class="backup-status-msg"></p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal Añadir / Editar Equipo -->
+  <div id="deviceModal" class="m3-modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="m3-modal-sheet">
+      <div class="modal-header">
+        <h3 id="deviceModalTitle" class="modal-title">Añadir Equipo</h3>
+        <button type="button" id="btnCloseDeviceModal" class="icon-close-btn" aria-label="Cerrar">✕</button>
+      </div>
+      <form id="deviceForm">
+        <input type="hidden" id="deviceIdInput" />
+        <div class="m3-field">
+          <label for="deviceNameInput" class="m3-label">Nombre del Equipo *</label>
+          <input type="text" id="deviceNameInput" class="m3-input" placeholder="Ej. Cámara Refrigeración 1" required />
+        </div>
+        <div class="m3-field">
+          <label for="deviceTypeSelect" class="m3-label">Tipo de Frío *</label>
+          <select id="deviceTypeSelect" class="m3-select">
+            <option value="REFRIGERACION">🧊 Refrigeración (0°C a 5°C)</option>
+            <option value="CONGELACION">❄️ Congelación (-24°C a -18°C)</option>
+            <option value="PERSONALIZADO">⚙️ Rango Personalizado</option>
+          </select>
+        </div>
+        <div class="m3-field-row">
+          <div class="m3-field">
+            <label for="deviceMinTempInput" class="m3-label">Temp. Mínima (°C) *</label>
+            <input type="number" step="0.5" id="deviceMinTempInput" class="m3-input" value="0" required />
+          </div>
+          <div class="m3-field">
+            <label for="deviceMaxTempInput" class="m3-label">Temp. Máxima (°C) *</label>
+            <input type="number" step="0.5" id="deviceMaxTempInput" class="m3-input" value="5" required />
+          </div>
+        </div>
+        <div class="m3-field">
+          <label for="deviceLocationInput" class="m3-label">Ubicación / Sección (Opcional)</label>
+          <input type="text" id="deviceLocationInput" class="m3-input" placeholder="Ej. Sala de ventas / Carnicería" />
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="btnCancelDeviceModal" class="m3-btn m3-btn-outline">Cancelar</button>
+          <button type="submit" class="m3-btn m3-btn-primary">Guardar Equipo</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Visor de Foto -->
+  <div id="photoViewerModal" class="m3-modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="photo-viewer-box">
+      <div class="photo-viewer-header">
+        <span id="photoViewerCaption">Fotografía del registro</span>
+        <button type="button" id="btnClosePhotoViewer" class="icon-close-btn">✕</button>
+      </div>
+      <img id="photoViewerImg" src="" alt="Foto ampliada" />
+    </div>
+  </div>
+
+  <div id="m3Snackbar" class="m3-snackbar hidden" role="status" aria-live="polite"></div>
+
+  <!-- Bottom Navigation Bar (Material Design 3) -->
+  <nav class="m3-bottom-nav" aria-label="Navegación principal">
+    <button type="button" class="nav-item active" data-target="view-home">
+      <span class="nav-pill"><span class="nav-icon">🏠</span></span>
+      <span class="nav-label">Inicio</span>
+    </button>
+    <button type="button" class="nav-item" data-target="view-record">
+      <span class="nav-pill"><span class="nav-icon">🌡️</span></span>
+      <span class="nav-label">Registrar</span>
+    </button>
+    <button type="button" class="nav-item" data-target="view-history">
+      <span class="nav-pill"><span class="nav-icon">📋</span></span>
+      <span class="nav-label">Historial</span>
+    </button>
+    <button type="button" class="nav-item" data-target="view-devices">
+      <span class="nav-pill"><span class="nav-icon">⚙️</span></span>
+      <span class="nav-label">Equipos</span>
+    </button>
+  </nav>
+
+  <script src="app.js"></script>
+</body>
+</html>
