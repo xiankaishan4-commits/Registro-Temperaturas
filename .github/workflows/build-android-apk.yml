@@ -38,6 +38,9 @@ jobs:
       - name: Comprobar JavaScript
         run: node --check app/src/main/assets/app.js
 
+      - name: Pruebas automatizadas de contrato de datos
+        run: python3 -m unittest discover -s tests -v
+
       - name: Compilar APK de prueba
         run: gradle --no-daemon :app:assembleDebug
 

@@ -124,7 +124,7 @@
           </div>
 
           <div class="m3-field">
-            <label class="m3-label">3. Fotografía del Visor / Termómetro</label>
+            <label class="m3-label">3. Fotografía del Visor / Termómetro *</label>
             <input
               type="file"
               id="recordPhotoInput"
@@ -216,6 +216,7 @@
         <div class="backup-actions-grid">
           <button type="button" id="btnExportZip" class="m3-btn m3-btn-primary backup-btn">📤 Exportar Copia ZIP</button>
           <label for="importZipInput" class="m3-btn m3-btn-tonal backup-btn">📥 Restaurar desde ZIP</label>
+          <button type="button" id="btnShareZip" class="m3-btn m3-btn-tonal backup-btn">☁️ Compartir ZIP / Google Drive</button>
           <input type="file" id="importZipInput" accept=".zip,application/zip" class="hidden-file-input" />
         </div>
         <p id="backupStatusText" class="backup-status-msg"></p>
@@ -258,6 +259,7 @@
           <label for="deviceLocationInput" class="m3-label">Ubicación / Sección (Opcional)</label>
           <input type="text" id="deviceLocationInput" class="m3-input" placeholder="Ej. Sala de ventas / Carnicería" />
         </div>
+        <div class="m3-field"><label class="m3-label"><input id="deviceActiveInput" type="checkbox" checked /> Equipo activo</label></div>
         <div class="modal-footer">
           <button type="button" id="btnCancelDeviceModal" class="m3-btn m3-btn-outline">Cancelar</button>
           <button type="submit" class="m3-btn m3-btn-primary">Guardar Equipo</button>

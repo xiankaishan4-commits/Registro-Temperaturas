@@ -2,6 +2,7 @@
   'use strict';
 
   const DB_NAME = 'ShanTemperaturasDB';
+  const LEGACY_DB_NAME = 'shanfood_temperaturas_offline';
   const STORE_DEVICES = 'equipos';
   const STORE_RECORDS = 'registros';
 
@@ -45,47 +46,104 @@
     bar._timer = setTimeout(() => bar.classList.add('hidden'), 3000);
   }
 
+  // Use a fixed database for the modern UI, not the first unrelated IndexedDB
+  // reported by indexedDB.databases(). Keep the original Android DB untouched.
   async function initDatabase() {
-    let targetDbName = DB_NAME;
-    let targetVersion = 1;
-    if (window.indexedDB && typeof indexedDB.databases === 'function') {
-      try {
-        const dbs = await indexedDB.databases();
-        const found = dbs && dbs.find(d => d.name && (d.name.toLowerCase().includes('temp') || d.name.toLowerCase().includes('shan') || d.name.toLowerCase().includes('registro')));
-        if (found) {
-          targetDbName = found.name;
-          targetVersion = Math.max(1, found.version || 1);
-        }
-      } catch (_) {}
-    }
-
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open(targetDbName, targetVersion);
-      req.onupgradeneeded = function (ev) {
-        const db = ev.target.result;
-        if (!db.objectStoreNames.contains(STORE_DEVICES)) db.createObjectStore(STORE_DEVICES, { keyPath: 'id' });
-        if (!db.objectStoreNames.contains(STORE_RECORDS)) db.createObjectStore(STORE_RECORDS, { keyPath: 'id' });
+      const open = indexedDB.open(DB_NAME);
+      open.onerror = () => reject(open.error);
+      open.onblocked = () => reject(new Error('Cierra las otras ventanas antes de actualizar los datos.'));
+      open.onsuccess = () => {
+        const current = open.result;
+        const needsStores = [STORE_DEVICES, STORE_RECORDS].some(name => !current.objectStoreNames.contains(name));
+        if (!needsStores) { dbInstance = current; return resolve(current); }
+        const nextVersion = current.version + 1;
+        current.close();
+        const upgrade = indexedDB.open(DB_NAME, nextVersion);
+        upgrade.onupgradeneeded = () => {
+          for (const name of [STORE_DEVICES, STORE_RECORDS]) {
+            if (!upgrade.result.objectStoreNames.contains(name)) upgrade.result.createObjectStore(name, { keyPath: 'id' });
+          }
+        };
+        upgrade.onsuccess = () => { dbInstance = upgrade.result; resolve(dbInstance); };
+        upgrade.onerror = () => reject(upgrade.error);
+        upgrade.onblocked = () => reject(new Error('Cierra las otras ventanas antes de actualizar los datos.'));
       };
-      req.onsuccess = function (ev) {
-        const db = ev.target.result;
-        if (!db.objectStoreNames.contains(STORE_DEVICES) || !db.objectStoreNames.contains(STORE_RECORDS)) {
-          const nextVer = db.version + 1;
-          db.close();
-          const upReq = indexedDB.open(targetDbName, nextVer);
-          upReq.onupgradeneeded = e => {
-            const upDb = e.target.result;
-            if (!upDb.objectStoreNames.contains(STORE_DEVICES)) upDb.createObjectStore(STORE_DEVICES, { keyPath: 'id' });
-            if (!upDb.objectStoreNames.contains(STORE_RECORDS)) upDb.createObjectStore(STORE_RECORDS, { keyPath: 'id' });
-          };
-          upReq.onsuccess = e => { dbInstance = e.target.result; resolve(dbInstance); };
-          upReq.onerror = e => reject(e.target.error);
-        } else {
-          dbInstance = db;
-          resolve(dbInstance);
-        }
-      };
-      req.onerror = ev => reject(ev.target.error);
     });
+  }
+
+  function requestResult(req) {
+    return new Promise((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error('No se pueden leer los datos antiguos.'));
+    });
+  }
+
+  function blobAsDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('No se puede copiar la foto antigua.'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function legacySnapshot() {
+    // Opening a non-existent legacy database only creates an empty one; it never
+    // edits the existing old database or drops any of its object stores.
+    const legacy = await new Promise((resolve, reject) => {
+      const req = indexedDB.open(LEGACY_DB_NAME);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    try {
+      const names = ['devices', 'records', 'photos', 'equipos', 'registros'].filter(n => legacy.objectStoreNames.contains(n));
+      if (!names.length) return { legacyDevices: [], legacyRecords: [], legacyPhotos: [], m3Devices: [], m3Records: [] };
+      const tx = legacy.transaction(names, 'readonly');
+      const tasks = names.map(n => requestResult(tx.objectStore(n).getAll()));
+      const result = await Promise.all(tasks);
+      const grouped = Object.fromEntries(names.map((n, i) => [n, result[i]]));
+      return {
+        legacyDevices: grouped.devices || [], legacyRecords: grouped.records || [], legacyPhotos: grouped.photos || [],
+        m3Devices: grouped.equipos || [], m3Records: grouped.registros || []
+      };
+    } finally { legacy.close(); }
+  }
+
+  async function migrateLegacyData() {
+    const marker = 'rt_m3_legacy_migration_completed_v3';
+    if (localStorage.getItem(marker) === '1') return;
+    const snap = await legacySnapshot();
+    const existingDevices = new Set((await dbGetAll(STORE_DEVICES)).map(d => String(d.id)));
+    const existingRecords = new Set((await dbGetAll(STORE_RECORDS)).map(r => String(r.id)));
+    const newDevices = [];
+    const newRecords = [];
+    for (const d of [...snap.legacyDevices, ...snap.m3Devices]) {
+      const value = normalizeDevice(d);
+      if (!existingDevices.has(value.id)) { existingDevices.add(value.id); newDevices.push(value); }
+    }
+    const photos = new Map(snap.legacyPhotos.map(row => [String(row.id), row.blob]));
+    for (const row of [...snap.legacyRecords, ...snap.m3Records]) {
+      const rec = normalizeRecord(row);
+      if (existingRecords.has(rec.id)) continue;
+      const photo = photos.get(rec.id);
+      if (!rec.foto && photo instanceof Blob) rec.foto = await blobAsDataUrl(photo);
+      existingRecords.add(rec.id);
+      newRecords.push(rec);
+    }
+    // One atomic transaction: an error cannot leave half-migrated records.
+    if (newDevices.length || newRecords.length) {
+      await new Promise((resolve, reject) => {
+        const tx = dbInstance.transaction([STORE_DEVICES, STORE_RECORDS], 'readwrite');
+        for (const d of newDevices) tx.objectStore(STORE_DEVICES).put(d);
+        for (const r of newRecords) tx.objectStore(STORE_RECORDS).put(r);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error || new Error('No se puede completar la migración.'));
+        tx.onabort = () => reject(tx.error || new Error('Migración abortada.'));
+      });
+    }
+    localStorage.setItem(marker, '1');
+    if (newDevices.length || newRecords.length) showSnackbar(`Datos antiguos recuperados: ${newDevices.length} equipos, ${newRecords.length} registros.`);
   }
 
   function dbGetAll(storeName) {
@@ -122,8 +180,15 @@
       tipo: raw.tipo || (maxT <= -10 ? 'CONGELACION' : 'REFRIGERACION'),
       minTemp: minT,
       maxTemp: maxT,
-      ubicacion: raw.ubicacion || raw.location || ''
+      ubicacion: raw.ubicacion || raw.location || '',
+      activo: raw.activo !== undefined ? Boolean(raw.activo) : raw.active !== false
     };
+  }
+
+  function localDateOf(value) {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? getTodayISO() :
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
   function normalizeRecord(raw) {
@@ -139,17 +204,17 @@
       fecha: dateStr,
       timestamp: typeof ts === 'number' ? ts : new Date(ts).getTime(),
       foto: raw.foto || raw.photo || raw.imagen || null,
-      responsable: raw.responsable || raw.operario || '',
-      observaciones: raw.observaciones || raw.notas || '',
-      fueraDeRango: Boolean(raw.fueraDeRango)
+      responsable: raw.responsable || raw.operario || raw.person || '',
+      observaciones: raw.observaciones || raw.notas || raw.notes || '',
+      fueraDeRango: raw.fueraDeRango !== undefined ? Boolean(raw.fueraDeRango) : Boolean(raw.outOfRange)
     };
   }
 
   async function loadAllData() {
     const rawDevices = await dbGetAll(STORE_DEVICES);
     if (rawDevices.length === 0) {
-      for (const dev of DEFAULT_DEVICES) await dbPut(STORE_DEVICES, dev);
-      devicesCache = [...DEFAULT_DEVICES];
+      // Empty is a valid state (all devices may have been intentionally removed).
+      devicesCache = [];
     } else {
       devicesCache = rawDevices.map(normalizeDevice);
     }
@@ -205,7 +270,7 @@
 
     let pendingCount = 0, checkedCount = 0, alertsToday = 0;
 
-    devicesCache.forEach(device => {
+    devicesCache.filter(device => device.activo !== false).forEach(device => {
       const recs = todayRecords.filter(r => r.equipoId === device.id || r.equipoNombre === device.nombre);
       if (recs.length === 0) {
         pendingCount++;
@@ -242,7 +307,7 @@
     if (!pendingCount) pendingContainer.innerHTML = `<div class="empty-placeholder">🎉 ¡Todos los equipos han sido revisados hoy!</div>`;
     if (!checkedCount) checkedContainer.innerHTML = `<div class="empty-placeholder">Aún no se ha registrado ningún equipo hoy.</div>`;
 
-    const total = devicesCache.length;
+    const total = devicesCache.filter(device => device.activo !== false).length;
     document.getElementById('kpiTotalDevices').textContent = total;
     document.getElementById('kpiPendingToday').textContent = pendingCount;
     document.getElementById('kpiCheckedToday').textContent = checkedCount;
@@ -258,7 +323,7 @@
     const curRec = recSelect.value, curHist = histSelect.value;
 
     recSelect.innerHTML = '';
-    devicesCache.forEach(d => {
+    devicesCache.filter(d => d.activo !== false).forEach(d => {
       const opt = document.createElement('option');
       opt.value = d.id;
       opt.textContent = `${d.nombre} (${d.minTemp}°C a ${d.maxTemp}°C)`;
@@ -349,9 +414,7 @@
           <div class="history-meta">📅 ${formatDisplayDate(rec.fecha)} • 🕒 ${formatTime(rec.timestamp)} ${rec.responsable ? '• 👤 ' + escapeHtml(rec.responsable) : ''}</div>
           ${out ? '<div style="color:#ba1a1a;font-size:12px;font-weight:700;margin-top:4px;">⚠️ TEMPERATURA FUERA DE RANGO</div>' : ''}
           ${rec.observaciones ? `<div class="history-notes">📝 ${escapeHtml(rec.observaciones)}</div>` : ''}
-          <div style="text-align:right;margin-top:8px;">
-            <button type="button" class="m3-btn m3-btn-danger-outline m3-btn-sm" data-del="${rec.id}">🗑️ Eliminar</button>
-          </div>
+
         </div>
       `;
       const imgEl = card.querySelector('.history-thumb');
@@ -359,14 +422,6 @@
         document.getElementById('photoViewerImg').src = rec.foto;
         document.getElementById('photoViewerCaption').textContent = `${devName} (${Number(rec.temperatura).toFixed(1)}°C)`;
         document.getElementById('photoViewerModal').classList.remove('hidden');
-      });
-      card.querySelector('[data-del]').addEventListener('click', async () => {
-        if (confirm('¿Eliminar este registro?')) {
-          await dbDelete(STORE_RECORDS, rec.id);
-          await loadAllData();
-          renderAll();
-          showSnackbar('Registro eliminado');
-        }
       });
       listEl.appendChild(card);
     });
@@ -381,7 +436,7 @@
       row.innerHTML = `
         <div class="device-info-col">
           <div class="device-title-line"><span>${dev.minTemp < 0 ? '❄️' : '🧊'}</span><span>${escapeHtml(dev.nombre)}</span></div>
-          <div class="device-meta-line">Rango: <strong>${dev.minTemp}°C a ${dev.maxTemp}°C</strong> ${dev.ubicacion ? '• ' + escapeHtml(dev.ubicacion) : ''}</div>
+          <div class="device-meta-line">Rango: <strong>${dev.minTemp}°C a ${dev.maxTemp}°C</strong> ${dev.activo === false ? '• INACTIVO' : ''} ${dev.ubicacion ? '• ' + escapeHtml(dev.ubicacion) : ''}</div>
         </div>
         <div class="manage-actions">
           <button type="button" class="m3-btn m3-btn-tonal m3-btn-sm" data-edit>✏️</button>
@@ -390,6 +445,7 @@
       `;
       row.querySelector('[data-edit]').addEventListener('click', () => openDeviceModal(dev));
       row.querySelector('[data-del]').addEventListener('click', async () => {
+        if (recordsCache.some(r => r.equipoId === dev.id)) return showSnackbar('No se puede eliminar un equipo con historial. Desactívalo en Editar.');
         if (confirm(`¿Eliminar "${dev.nombre}"?`)) {
           await dbDelete(STORE_DEVICES, dev.id);
           await loadAllData();
@@ -423,6 +479,7 @@
     document.getElementById('deviceMinTempInput').value = device ? device.minTemp : 0;
     document.getElementById('deviceMaxTempInput').value = device ? device.maxTemp : 4;
     document.getElementById('deviceLocationInput').value = device ? (device.ubicacion || '') : '';
+    document.getElementById('deviceActiveInput').checked = !device || device.activo !== false;
     document.getElementById('deviceModal').classList.remove('hidden');
   }
 
@@ -472,59 +529,117 @@
   }
 
   async function extractStoredZip(buf) {
-    const bytes = new Uint8Array(buf), view = new DataView(buf), dec = new TextDecoder(), out = {};
-    let pos = 0;
-    while (pos + 30 <= bytes.length) {
-      if (view.getUint32(pos, true) !== 0x04034b50) break;
-      const method = view.getUint16(pos + 8, true), cSize = view.getUint32(pos + 18, true);
-      const nLen = view.getUint16(pos + 26, true), eLen = view.getUint16(pos + 28, true);
-      const name = dec.decode(bytes.subarray(pos + 30, pos + 30 + nLen));
-      const start = pos + 30 + nLen + eLen, data = bytes.subarray(start, start + cSize);
-      if (method === 0) out[name] = data;
-      pos = start + cSize;
+    const bytes = new Uint8Array(buf), view = new DataView(buf), dec = new TextDecoder();
+    const out = new Map(); let pos = 0, entries = 0;
+    while (pos + 4 <= bytes.length && view.getUint32(pos, true) === 0x04034b50) {
+      if (++entries > 45000 || pos + 30 > bytes.length) throw new Error('ZIP demasiado grande o incompleto');
+      const flags = view.getUint16(pos + 6, true), method = view.getUint16(pos + 8, true);
+      const crc = view.getUint32(pos + 14, true), size = view.getUint32(pos + 18, true);
+      const nLen = view.getUint16(pos + 26, true), extra = view.getUint16(pos + 28, true);
+      const begin = pos + 30, start = begin + nLen + extra, end = start + size;
+      if (method !== 0 || (flags & 0x08)) throw new Error('ZIP no compatible: solo copias sin compresión de esta App');
+      if (end > bytes.length || start < begin) throw new Error('ZIP truncado');
+      const name = dec.decode(bytes.subarray(begin, begin + nLen));
+      if (!name || name.includes('..') || name.startsWith('/') || out.has(name)) throw new Error('Nombre ZIP no válido o duplicado');
+      const part = bytes.slice(start, end);
+      if (crc32(part) !== crc) throw new Error('ZIP dañado: integridad incorrecta para ' + name);
+      out.set(name, part); pos = end;
     }
+    if (!out.size || pos + 4 > bytes.length || view.getUint32(pos, true) !== 0x02014b50) throw new Error('ZIP inválido o incompleto');
     return out;
   }
 
-  async function exportBackupZip() {
-    const statusEl = document.getElementById('backupStatusText');
+  async function nativeExport(blob, name, mode = 'save') {
+    const bridge = window.AndroidBridge;
+    if (!bridge || typeof bridge.begin !== 'function' || typeof bridge.append !== 'function' || typeof bridge.finish !== 'function') throw new Error('Interfaz de Android no disponible');
+    bridge.begin(name);
     try {
-      const payload = JSON.stringify({ equipos: devicesCache, registros: recordsCache }, null, 2);
+      const step = 64 * 1024;
+      for (let i = 0; i < blob.size; i += step) {
+        const bytes = new Uint8Array(await blob.slice(i, i + step).arrayBuffer());
+        let binary = '';
+        for (let j = 0; j < bytes.length; j++) binary += String.fromCharCode(bytes[j]);
+        bridge.append(btoa(binary));
+      }
+      bridge.finish(mode);
+    } catch (err) { bridge.cancel(); throw err; }
+  }
+
+  async function exportBackupZip(mode = 'save') {
+    const statusEl = document.getElementById('backupStatusText');
+    const btn = document.getElementById(mode === 'share' ? 'btnShareZip' : 'btnExportZip');
+    btn.disabled = true;
+    try {
+      const payload = JSON.stringify({ format: 'SHANFOODSGROUP_M3', version: 2, exportedAt: new Date().toISOString(),
+        equipos: devicesCache, registros: recordsCache });
       const zipBlob = createStoredZip([{ name: 'backup_datos.json', data: payload }]);
       const fileName = `SHANFOODSGROUP_Backup_${getTodayISO()}.zip`;
-      if (window.Android && typeof window.Android.saveBackupZip === 'function') {
-        const r = new FileReader();
-        r.onloadend = () => window.Android.saveBackupZip(r.result.split(',')[1], fileName);
-        r.readAsDataURL(zipBlob);
+      if (window.AndroidBridge) {
+        await nativeExport(zipBlob, fileName, mode);
+        statusEl.textContent = mode === 'share' ? 'Selecciona Drive u otra aplicación y comprueba que se ha subido.' :
+          'Selecciona dónde guardar el archivo ZIP; verifica que esté en Archivos o Drive.';
+      } else if (mode === 'share' && navigator.canShare && navigator.canShare({files:[new File([zipBlob],fileName,{type:'application/zip'})]})) {
+        await navigator.share({files:[new File([zipBlob],fileName,{type:'application/zip'})]});
+        statusEl.textContent = 'Copia compartida. Comprueba que se ha guardado.';
       } else {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(zipBlob);
-        a.download = fileName;
-        a.click();
+        const href = URL.createObjectURL(zipBlob), a = document.createElement('a');
+        a.href = href; a.download = fileName; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(href), 60000);
+        statusEl.textContent = `Descarga solicitada: ${fileName}. Comprueba el archivo.`;
       }
-      statusEl.textContent = `✅ Copia exportada (${fileName})`;
-      showSnackbar('Copia ZIP generada');
-    } catch (e) {
-      statusEl.textContent = '❌ Error: ' + e.message;
-    }
+    } catch (e) { statusEl.textContent = '❌ Error al exportar: ' + e.message; }
+    finally { btn.disabled = false; }
+  }
+
+  function assertBackupShape(data) {
+    if (!data || typeof data !== 'object') throw new Error('El contenido JSON no es válido');
+    const ds = data.equipos || data.devices, rs = data.registros || data.records;
+    if (!Array.isArray(ds) || !Array.isArray(rs) || ds.length > 10000 || rs.length > 40000) throw new Error('Datos incompletos o límites de seguridad excedidos');
+    for (const d of ds) if (!d || !d.id || !(d.nombre || d.name) || !Number.isFinite(Number(d.minTemp ?? d.min)) ||
+      !Number.isFinite(Number(d.maxTemp ?? d.max))) throw new Error('Equipo inválido en copia');
+    for (const r of rs) if (!r || !r.id || !Number.isFinite(Number(r.temperatura ?? r.temp)) || !(r.equipoId || r.deviceId))
+      throw new Error('Registro inválido en copia');
+    return {ds, rs};
   }
 
   async function importBackupZip(file) {
     const statusEl = document.getElementById('backupStatusText');
     try {
+      if (file.size > 600 * 1024 * 1024) throw new Error('Archivo demasiado grande (máximo 600 MB).');
       const files = await extractStoredZip(await file.arrayBuffer());
-      const jsonKey = Object.keys(files).find(k => k.endsWith('.json'));
-      if (!jsonKey) throw new Error('Archivo JSON no encontrado en el ZIP');
-      const data = JSON.parse(new TextDecoder().decode(files[jsonKey]));
-      for (const d of (data.equipos || data.devices || [])) await dbPut(STORE_DEVICES, normalizeDevice(d));
-      for (const r of (data.registros || data.records || [])) await dbPut(STORE_RECORDS, normalizeRecord(r));
-      await loadAllData();
-      renderAll();
-      statusEl.textContent = '✅ Copia restaurada correctamente';
-      showSnackbar('Datos restaurados');
-    } catch (e) {
-      statusEl.textContent = '❌ Error al restaurar: ' + e.message;
-    }
+      let records, devices;
+      if (files.has('backup_datos.json')) {
+        ({ds: devices, rs: records} = assertBackupShape(JSON.parse(new TextDecoder().decode(files.get('backup_datos.json')))));
+      } else if (files.has('registro.json')) {
+        const manifest = JSON.parse(new TextDecoder().decode(files.get('registro.json')));
+        ({ds: devices, rs: records} = assertBackupShape(manifest));
+        records = await Promise.all(records.map(async row => {
+          const photoBytes = files.get(`fotos/${row.id}.jpg`);
+          if (!photoBytes) throw new Error('Foto ausente para el registro ' + row.id);
+          const binary = new Blob([photoBytes], {type:'image/jpeg'});
+          return {...row, foto: await blobAsDataUrl(binary)};
+        }));
+      } else throw new Error('Falta backup_datos.json o registro.json');
+      const newDevices = new Map(); const newRecords = new Map();
+      for (const d of devices) { const n = normalizeDevice(d); if (newDevices.has(n.id)) throw new Error('Equipo duplicado en ZIP'); newDevices.set(n.id, n); }
+      for (const r of records) { const n = normalizeRecord(r); if (newRecords.has(n.id)) throw new Error('Registro duplicado en ZIP'); newRecords.set(n.id, n); }
+      const existingDevices = new Set((await dbGetAll(STORE_DEVICES)).map(d => String(d.id)));
+      const existingRecords = new Set((await dbGetAll(STORE_RECORDS)).map(r => String(r.id)));
+      const newDs = [...newDevices.values()].filter(d => !existingDevices.has(d.id));
+      const newRs = [...newRecords.values()].filter(r => !existingRecords.has(r.id));
+      if (!confirm(`Se añadirán ${newDs.length} equipos y ${newRs.length} registros NUEVOS. Los datos existentes NO se borrarán ni sobrescribirán. ¿Continuar?`)) return;
+      if (newDs.length || newRs.length) await new Promise((resolve,reject) => {
+        const tx = dbInstance.transaction([STORE_DEVICES,STORE_RECORDS], 'readwrite');
+        for (const d of newDs) tx.objectStore(STORE_DEVICES).put(d);
+        for (const r of newRs) tx.objectStore(STORE_RECORDS).put(r);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error || new Error('Error de importación'));
+        tx.onabort = () => reject(tx.error || new Error('Restauración interrumpida'));
+      });
+      await loadAllData(); renderAll();
+      statusEl.textContent = `✅ Importación completada: ${newDs.length} equipos, ${newRs.length} registros nuevos; existentes conservados.`;
+      showSnackbar('Copia importada; registros existentes conservados.');
+    } catch (e) { statusEl.textContent = '❌ Error al importar: ' + e.message; }
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
@@ -550,7 +665,8 @@
     });
     photoInput.addEventListener('change', async e => {
       if (!e.target.files || !e.target.files[0]) return;
-      currentCompressedPhoto = await compressImageFile(e.target.files[0], 1024, 0.72);
+      try { currentCompressedPhoto = await compressImageFile(e.target.files[0], 1024, 0.72); }
+      catch (err) { currentCompressedPhoto = null; showSnackbar('No se puede leer la foto: ' + err.message); return; }
       document.getElementById('recordPhotoPreview').src = currentCompressedPhoto;
       document.getElementById('photoEmptyState').classList.add('hidden');
       document.getElementById('photoPreviewState').classList.remove('hidden');
@@ -560,10 +676,12 @@
       e.preventDefault();
       const dev = getSelectedRecordDevice();
       const tempVal = parseFloat(tempInput.value);
-      if (!dev || isNaN(tempVal)) return showSnackbar('Introduce una temperatura válida');
+      if (!dev || tempInput.value.trim() === '' || !Number.isFinite(tempVal) || tempVal < -100 || tempVal > 100) return showSnackbar('Introduce una temperatura válida');
+      if (!currentCompressedPhoto) return showSnackbar('Haz una foto del termómetro antes de guardar.');
       const out = isTempOutOfRange(dev, tempVal);
+      if (out && !document.getElementById('recordNotesInput').value.trim()) return showSnackbar('Temperatura fuera de rango: escribe la medida correctora.');
       await dbPut(STORE_RECORDS, {
-        id: 'rec-' + Date.now(),
+        id: 'rec-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
         equipoId: dev.id,
         equipoNombre: dev.nombre,
         temperatura: tempVal,
@@ -578,6 +696,7 @@
       tempInput.value = '';
       document.getElementById('recordNotesInput').value = '';
       currentCompressedPhoto = null;
+      photoInput.value = '';
       document.getElementById('photoPreviewState').classList.add('hidden');
       document.getElementById('photoEmptyState').classList.remove('hidden');
       validateLiveTemperatureInput();
@@ -607,7 +726,8 @@
         tipo: document.getElementById('deviceTypeSelect').value,
         minTemp: parseFloat(document.getElementById('deviceMinTempInput').value),
         maxTemp: parseFloat(document.getElementById('deviceMaxTempInput').value),
-        ubicacion: document.getElementById('deviceLocationInput').value.trim()
+        ubicacion: document.getElementById('deviceLocationInput').value.trim(),
+        activo: document.getElementById('deviceActiveInput').checked
       });
       await loadAllData();
       renderAll();
@@ -616,11 +736,19 @@
     });
 
     document.getElementById('btnClosePhotoViewer').addEventListener('click', () => document.getElementById('photoViewerModal').classList.add('hidden'));
-    document.getElementById('btnExportZip').addEventListener('click', exportBackupZip);
-    document.getElementById('importZipInput').addEventListener('change', e => { if (e.target.files[0]) importBackupZip(e.target.files[0]); });
+    document.getElementById('btnExportZip').addEventListener('click', () => exportBackupZip('save'));
+    document.getElementById('btnShareZip').addEventListener('click', () => exportBackupZip('share'));
+    document.getElementById('importZipInput').addEventListener('change', async e => { if (e.target.files[0]) await importBackupZip(e.target.files[0]); e.target.value = ''; });
 
-    await initDatabase();
-    await loadAllData();
+    try {
+      await initDatabase();
+      await migrateLegacyData();
+      await loadAllData();
+    } catch (error) {
+      showSnackbar('ERROR AL INICIAR: ' + error.message + '. Los datos antiguos no se han borrado.');
+      console.error(error);
+      return;
+    }
     renderAll();
   });
 })();
