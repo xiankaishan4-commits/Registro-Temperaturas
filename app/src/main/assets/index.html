@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#124f45">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Temperaturas">
+<meta name="description" content="Control diario offline de temperaturas frigoríficas, con fotografías y copias de seguridad.">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="icon" href="./icon-192.png">
+<link rel="stylesheet" href="./styles.css">
+<title>Control de Temperaturas · SHANFOODSGROUP</title>
+</head>
+<body>
+<header class="top"><div class="shell top-inner"><div class="brand-mark">❄</div><div class="brand"><strong>CONTROL DE TEMPERATURAS</strong><span>SHANFOODSGROUP · Registro local</span></div><span class="top-status" id="onlineBadge">En este móvil</span></div></header>
+<main class="shell">
+<div id="notice" class="notice hidden" role="status"></div>
+<div id="backupReminder" class="banner hidden"><strong>⚠ Copia de seguridad pendiente</strong><span>Los datos están guardados solo en este móvil. Haz una copia ZIP y súbela a Google Drive.</span><button type="button" class="tiny" data-go="backup">Ir a copias</button></div>
+<nav class="tabs" aria-label="Secciones">
+<button type="button" data-tab="today" class="active">⌂ <span>Hoy</span></button>
+<button type="button" data-tab="new">＋ <span>Registrar</span></button>
+<button type="button" data-tab="history">▤ <span>Historial</span></button>
+<button type="button" data-tab="devices">▦ <span>Equipos</span></button>
+<button type="button" data-tab="backup">⇪ <span>Copias</span></button>
+</nav>
+<section id="today" class="tab-view">
+ <div class="section-heading"><div><p class="eyebrow">CONTROL DIARIO</p><h1>Revisión de hoy</h1><p class="muted" id="todayDate"></p></div><button type="button" class="outline small" id="refresh">Actualizar</button></div>
+ <div class="stats"><div class="stat"><b id="countDone">0</b><span>Revisados</span></div><div class="stat"><b id="countPending">0</b><span>Pendientes</span></div><div class="stat"><b id="countAlert">0</b><span>Incidencias</span></div></div>
+ <div class="card"><div class="card-heading"><h2>Equipos activos</h2><span class="muted">Última lectura del día</span></div><div id="todayItems" class="item-list"></div></div>
+</section>
+<section id="new" class="tab-view hidden">
+ <div class="section-heading"><div><p class="eyebrow">REGISTRO FOTOGRÁFICO</p><h1>Nueva lectura</h1><p class="muted">Se guarda en este dispositivo, incluso sin internet.</p></div></div>
+ <div class="card"><form id="recordForm">
+ <label for="recordDevice">Equipo <em>*</em></label><select id="recordDevice" required></select>
+ <div class="two"><div><label for="recordTemp">Temperatura (°C) <em>*</em></label><input id="recordTemp" type="number" step="0.1" min="-100" max="100" inputmode="decimal" placeholder="Ej.: -18,5" required></div><div><label for="recordPerson">Responsable <em>*</em></label><input id="recordPerson" type="text" maxlength="70" placeholder="Nombre" autocomplete="name" required></div></div>
+ <label for="recordPhoto">Foto del termómetro <em>*</em></label><input id="recordPhoto" type="file" accept="image/*" capture="environment" required><p class="hint">La foto se reduce de tamaño antes de guardarse para ahorrar espacio.</p><img id="preview" class="preview hidden" alt="Vista previa de la fotografía">
+ <div id="rangeHelp" class="range-note"></div>
+ <label for="recordNotes">Observaciones / medidas correctoras</label><textarea id="recordNotes" rows="3" maxlength="1000" placeholder="Obligatorio si está fuera del rango permitido"></textarea>
+ <button class="primary full" id="saveRecord" type="submit">Guardar lectura y foto</button><p class="hint center">La fecha y hora se toman del reloj del teléfono.</p>
+ </form></div>
+</section>
+<section id="history" class="tab-view hidden"><div class="section-heading"><div><p class="eyebrow">TRAZABILIDAD</p><h1>Historial</h1><p class="muted">Registros y fotos guardados en el teléfono.</p></div></div>
+<div class="card"><div class="two"><div><label for="filterDate">Fecha</label><input id="filterDate" type="date"></div><div><label for="filterDevice">Equipo</label><select id="filterDevice"></select></div></div><div class="btn-row"><button type="button" class="outline" id="clearFilters">Limpiar filtros</button><button type="button" class="outline" id="exportCsv">Exportar CSV</button></div><p class="hint">El CSV no incluye imágenes. La copia ZIP sí incluye todas las fotos.</p></div><div class="card"><div id="historyItems" class="item-list"></div></div>
+</section>
+<section id="devices" class="tab-view hidden"><div class="section-heading"><div><p class="eyebrow">CONFIGURACIÓN</p><h1>Equipos frigoríficos</h1></div></div><div class="card"><h2 id="deviceFormTitle">Añadir equipo</h2><form id="deviceForm"><input id="deviceId" type="hidden"><label for="deviceName">Nombre o código <em>*</em></label><input id="deviceName" type="text" maxlength="100" placeholder="Ej.: AHT 01 · Congelados" required><label for="deviceType">Tipo</label><select id="deviceType"><option>Refrigeración</option><option>Congelación</option><option>Cámara frigorífica</option><option>Otro</option></select><div class="two"><div><label for="deviceMin">Mínimo (°C)</label><input id="deviceMin" type="number" step="0.1" value="0" min="-100" max="100" required></div><div><label for="deviceMax">Máximo (°C)</label><input id="deviceMax" type="number" step="0.1" value="5" min="-100" max="100" required></div></div><label class="check"><input id="deviceActive" type="checkbox" checked> Equipo activo</label><div class="btn-row"><button type="submit" class="primary" id="saveDevice">Guardar equipo</button><button type="button" class="outline" id="resetDevice">Cancelar</button></div></form></div><div class="card"><h2>Lista de equipos</h2><div id="deviceItems" class="item-list"></div></div></section>
+<section id="backup" class="tab-view hidden"><div class="section-heading"><div><p class="eyebrow">SEGURIDAD DE DATOS</p><h1>Copias y traslado</h1><p class="muted">Sin cuentas, sin base de datos en internet.</p></div></div>
+<div class="card tinted"><div class="backup-icon">▣</div><h2>Todo está guardado en este teléfono</h2><p>Las temperaturas, los equipos y las fotografías se almacenan localmente. Puedes seguir registrando sin conexión. Si pierdes el móvil o se borran los datos del navegador, podrías perderlo todo.</p><p><strong>Recomendación:</strong> copia ZIP al menos una vez por semana y guárdala en Google Drive u otro dispositivo.</p><div class="meta" id="storageUsage">Consultando almacenamiento…</div><div class="meta" id="lastBackup">Última copia: nunca</div></div>
+<div class="card"><h2>1. Crear copia completa (ZIP)</h2><p class="muted">Incluye equipos, registros y fotografías. Sirve para restaurar en otro móvil.</p><button type="button" class="primary full" id="downloadBackup">Descargar copia ZIP</button><button type="button" class="outline full space-top" id="shareBackup">Compartir / Guardar en Drive</button><p class="hint">Compartir funciona si el móvil y el navegador permiten compartir archivos. Si no aparece Google Drive, descarga el ZIP y súbelo manualmente desde la app Drive.</p></div>
+<div class="card"><h2>2. Restaurar en otro teléfono</h2><p class="muted">Abre esta aplicación en el otro móvil y selecciona el archivo ZIP. <strong>La restauración reemplaza todo lo que haya guardado allí.</strong></p><label for="importBackup">Seleccionar copia ZIP</label><input id="importBackup" type="file" accept=".zip,application/zip"><button type="button" class="danger-btn full space-top" id="restoreBackup">Restaurar copia (reemplazar datos)</button></div>
+<div class="card"><h2>3. Almacenamiento del dispositivo</h2><p class="muted">Solicitar almacenamiento persistente reduce el riesgo de limpieza automática, pero no sustituye las copias de seguridad.</p><button type="button" class="outline" id="requestPersistent">Proteger almacenamiento local</button><p class="hint">No elimines los datos del navegador ni desinstales la aplicación sin antes exportar un ZIP.</p></div>
+</section>
+</main>
+<dialog id="photoDialog"><div class="dialog-heading"><strong>Foto del registro</strong><button type="button" class="outline small" id="closePhoto">Cerrar</button></div><img id="fullPhoto" alt="Fotografía del termómetro"><div class="muted" id="photoCaption"></div></dialog>
+<script src="./app.js" defer></script>
+</body></html>
