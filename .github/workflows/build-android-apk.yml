@@ -1,4 +1,4 @@
-name: Generar APK Android
+name: Compilar APK Android con firma fija
 
 on:
   workflow_dispatch:
@@ -26,7 +26,6 @@ jobs:
           echo "ANDROID_HOME=${ANDROID_HOME:-}"
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n1)"
           test -n "$SDKMANAGER" || { echo "sdkmanager no encontrado" >&2; exit 1; }
-          echo "SDK manager: $SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
@@ -36,7 +35,9 @@ jobs:
           gradle-version: '8.9'
 
       - name: Comprobar JavaScript
-        run: node --check app/src/main/assets/app.js
+        run: |
+          node --check app/src/main/assets/app.js
+          node --check app/src/main/assets/records-core.js
 
       - name: Probar reglas de historial e informes
         run: node tests/test_records_core.cjs
@@ -44,13 +45,69 @@ jobs:
       - name: Validar estructura y compatibilidad
         run: python3 -m unittest discover -s tests -v
 
-      - name: Compilar APK de prueba
-        run: gradle --no-daemon :app:assembleDebug
+      # All secret values are available only within the runner, never committed.
+      - name: Validar GitHub Secrets de firma
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for key in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Falta GitHub Actions Secret: $key (consulte SIGNING_SETUP.md)"
+              exit 1
+            fi
+          done
+          echo "Los 4 GitHub Actions Secrets están configurados."
 
-      - name: Publicar APK
+      - name: Restaurar keystore temporal
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/android-signing"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/android-signing/release.p12"
+          test -s "$RUNNER_TEMP/android-signing/release.p12" || exit 1
+          echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/android-signing/release.p12" >> "$GITHUB_ENV"
+
+      - name: Compilar APK release firmado con clave permanente
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle --no-daemon :app:assembleRelease
+
+      - name: Verificar firma y certificado permanente
+        shell: bash
+        env:
+          EXPECTED_CERT_SHA256: CA948872880E588B54F63077AC25BDDCC13CE8C5126CBC38AF27DC26B30129CA
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          INFO=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK")
+          ACTUAL=$(printf '%s\n' "$INFO" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr '[:lower:]' '[:upper:]' | tr -d '\r')
+          if [ -z "$ACTUAL" ] || [ "$ACTUAL" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "::error::APK certificate fingerprint does not match registered signing identity"
+            exit 1
+          fi
+          echo "APK signature verified: $ACTUAL"
+          cp "$APK" "$RUNNER_TEMP/Registro_Temperaturas_v1.2.1_Firmado.apk"
+
+      - name: Publicar solo APK firmado
         uses: actions/upload-artifact@v4
         with:
-          name: Registro_Temperaturas_APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Registro_Temperaturas_APK_Firmado_v1.2.1
+          path: ${{ runner.temp }}/Registro_Temperaturas_v1.2.1_Firmado.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Borrar keystore temporal
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/android-signing/release.p12"

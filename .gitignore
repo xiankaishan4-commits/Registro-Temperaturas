@@ -1,0 +1,16 @@
+# Private Android signing material -- never commit
+*.jks
+*.keystore
+*.p12
+*.pfx
+**/signing/
+**/secrets/
+**/GITHUB_SECRETS_VALUES.txt
+**/ANDROID_KEYSTORE_BASE64.txt
+**/ANDROID_KEYSTORE_PASSWORD.txt
+**/ANDROID_KEY_PASSWORD.txt
+**/ANDROID_KEY_ALIAS.txt
+# Build outputs
+.gradle/
+**/build/
+local.properties

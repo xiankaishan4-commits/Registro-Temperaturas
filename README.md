@@ -52,3 +52,8 @@
 - Controles pendientes anteriores: se enumeran hasta los últimos siete días **a partir de la primera ejecución de esta versión**, sin asumir omisiones previas desconocidas.
 - El proyecto no modifica la firma de instalación: los APK debug compilados con claves diferentes **NO** se pueden instalar como actualización sobre una versión previa. Antes de cambiar de APK, exporte y verifique el ZIP de respaldo. Para actualizaciones fiables configure una clave de firma privada permanente fuera del repositorio público.
 - Este código y APK de prueba deben probarse en móvil real. No hay verificación de horario independiente del reloj del móvil ni auditoría a prueba de manipulaciones.
+
+
+## APK firmado y actualizaciones
+
+Las compilaciones de producción utilizan una única firma persistente (PKCS12). Configure los cuatro GitHub Actions Secrets siguiendo [SIGNING_SETUP.md](SIGNING_SETUP.md). El APK resultante se crea mediante `assembleRelease` y comprueba su certificado SHA-256. **Nunca incluya archivos de clave o contraseñas en el repositorio.**

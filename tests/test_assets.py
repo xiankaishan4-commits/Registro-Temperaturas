@@ -38,6 +38,6 @@ class AssetsTest(unittest.TestCase):
         self.assertIn('PdfDocument',java)
         self.assertIn('.pdf',java)
         gradle=(ROOT/'app/build.gradle').read_text(encoding='utf-8')
-        self.assertIn('versionCode 3',gradle)
+        self.assertIn('versionCode 4',gradle)
 
 if __name__=='__main__': unittest.main()

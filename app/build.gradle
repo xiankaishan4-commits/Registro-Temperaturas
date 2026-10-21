@@ -1,5 +1,14 @@
 plugins { id 'com.android.application' }
 
+// Signing material is provided by GitHub Actions Secrets through environment variables.
+// NEVER store .jks/.p12 files or passwords in the repository.
+def releaseKeystore = System.getenv('ANDROID_KEYSTORE_FILE')
+def releaseStorePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD')
+def releaseKeyAlias = System.getenv('ANDROID_KEY_ALIAS')
+def releaseKeyPassword = System.getenv('ANDROID_KEY_PASSWORD')
+def signingValuesPresent = [releaseKeystore, releaseStorePassword, releaseKeyAlias, releaseKeyPassword]
+        .every { it != null && !it.trim().isEmpty() }
+
 android {
     namespace 'com.shanfoodsgroup.temperaturas'
     compileSdk 35
@@ -7,9 +16,45 @@ android {
         applicationId 'com.shanfoodsgroup.temperaturas'
         minSdk 29
         targetSdk 35
-        versionCode 3
-        versionName '1.2.0-dev'
+        // Must increase for future updates. Old APKs with a DIFFERENT key cannot be upgraded in place.
+        versionCode 4
+        versionName '1.2.1'
     }
-    buildTypes { release { minifyEnabled false } }
-    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    signingConfigs {
+        release {
+            if (signingValuesPresent) {
+                storeFile file(releaseKeystore)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+                storeType 'pkcs12'
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// A missing secret MUST cause the release build to fail rather than silently produce
+// an unsigned APK (or revert to the ephemeral debug signing identity).
+tasks.register('requirePermanentSigningKey') {
+    doLast {
+        if (!signingValuesPresent) {
+            throw new GradleException('Faltan Secrets de firma Android. Consulte SIGNING_SETUP.md.')
+        }
+        if (!file(releaseKeystore).isFile()) {
+            throw new GradleException('No se encontró el keystore PKCS12 en ANDROID_KEYSTORE_FILE.')
+        }
+    }
+}
+tasks.matching { it.name == 'preReleaseBuild' }.configureEach {
+    dependsOn 'requirePermanentSigningKey'
 }
