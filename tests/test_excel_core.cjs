@@ -33,7 +33,7 @@ assert.throws(()=>X.prepare([],devices,{month:'2026-13'}),/válido/);
  const bytes=await X.build(rows,devices,{month:'2026-10'});
  assert(ArrayBuffer.isView(bytes) && bytes.length>5000);
  assert.equal(Buffer.from(bytes).toString('ascii',0,2),'PK');
- const book=new ExcelJS.Workbook();await book.xlsx.load(bytes);
+ const book=new ExcelJS.Workbook();await book.xlsx.load(Buffer.from(bytes));
  assert.deepEqual(book.worksheets.map(s=>s.name),['Resumen Mensual','Registro Detallado']);
  const matrix=book.getWorksheet('Resumen Mensual');
  assert.equal(matrix.getCell('A3').value,'Equipo');
