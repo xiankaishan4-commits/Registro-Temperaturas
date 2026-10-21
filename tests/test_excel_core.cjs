@@ -31,7 +31,7 @@ assert.equal(X.prepare([],devices,{month:'2028-02'}).month.days,29);
 assert.throws(()=>X.prepare([],devices,{month:'2026-13'}),/válido/);
 (async()=>{
  const bytes=await X.build(rows,devices,{month:'2026-10'});
- assert(bytes instanceof Uint8Array && bytes.length>5000);
+ assert(ArrayBuffer.isView(bytes) && bytes.length>5000);
  assert.equal(Buffer.from(bytes).toString('ascii',0,2),'PK');
  const book=new ExcelJS.Workbook();await book.xlsx.load(bytes);
  assert.deepEqual(book.worksheets.map(s=>s.name),['Resumen Mensual','Registro Detallado']);
