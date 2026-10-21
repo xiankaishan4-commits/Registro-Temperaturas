@@ -2,8 +2,9 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const assets=path.join(__dirname,'../app/src/main/assets');
 const ExcelJS=require(path.join(assets,'vendor/exceljs.min.js'));
-const ctx={ExcelJS,Intl,Date};vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(assets,'excel-core.js'),'utf8'),ctx);
-const X=ctx.RTExcel;
+global.ExcelJS=ExcelJS;
+require(path.join(assets,'excel-core.js'));
+const X=global.RTExcel;
 const devices=[{id:'10',nombre:'Mural 10'},{id:'1',nombre:'Mural 1'},{id:'2',nombre:'Mural 2'},{id:'x',nombre:'Cámara Árbol'},{id:'ordered',nombre:'Nevera especial',orden:1}];
 const rows=[
  {equipo:'Mural 10',fecha:'2026-10-03',hora:'21:00',temperatura:'4,0',responsable:'Ana',observaciones:'Descarche',id:'r10'},
