@@ -54,6 +54,13 @@
         </div>
       </div>
 
+      <div class="m3-card report-quick-card">
+        <h2 class="card-title">📄 Informe para entregar</h2>
+        <p class="card-helper">Genera el PDF de hoy con equipo, fecha, hora, temperatura y fotografía de cada control.</p>
+        <button type="button" class="m3-btn m3-btn-primary report-main-btn" id="btnQuickPDF">📄 Exportar PDF de hoy (con fotos)</button>
+        <p class="card-helper">Para elegir otras fechas o equipos, abre la sección «Informes».</p>
+      </div>
+
       <div class="section-block">
         <div class="section-title-row"><h3 class="section-heading">Controles anteriores sin realizar</h3><span id="pastMissingCount" class="m3-chip chip-warning">0</span></div>
         <div id="pastMissingList" class="device-cards-grid"></div>
@@ -237,28 +244,47 @@
         <div id="manageDevicesList" class="manage-devices-list"></div>
       </div>
 
-      <div class="m3-card">
-        <h2 class="card-title">📊 Exportar informe de temperaturas</h2>
-        <p class="card-helper">El informe muestra el equipo, la fecha y la hora reales de medición. Las mediciones no realizadas quedan sin temperatura ni hora.</p>
-        <div class="m3-field"><label for="exportDeviceFilter" class="m3-label">Equipo</label><select class="m3-select" id="exportDeviceFilter"><option value="ALL">Todos los equipos</option></select></div>
-        <div class="m3-field-row"><div class="m3-field"><label for="exportFromDate" class="m3-label">Desde</label><input type="date" id="exportFromDate" class="m3-input" /></div>
-        <div class="m3-field"><label for="exportToDate" class="m3-label">Hasta</label><input type="date" id="exportToDate" class="m3-input" /></div></div>
-        <div class="backup-actions-grid"><button id="btnExportCSV" type="button" class="m3-btn m3-btn-tonal">Exportar Excel (CSV)</button><button id="btnExportPDF" type="button" class="m3-btn m3-btn-primary">Exportar PDF</button></div>
-      </div>
       <div class="m3-card backup-card">
         <div class="card-header-row">
-          <h2 class="card-title">📦 Copia de Seguridad (ZIP)</h2>
-          <p class="card-helper">Guarda o restaura todos los equipos, registros y fotos en un archivo ZIP local.</p>
+          <h2 class="card-title">🔐 Copias de seguridad — administración</h2>
+          <p class="card-helper">Solo para guardar o recuperar datos del teléfono. ZIP y JSON incluyen fotos y datos técnicos; NO son informes para entregar al personal ni a inspecciones. Usa «Informes» para PDF o CSV.</p>
         </div>
         <div class="backup-actions-grid">
-          <button type="button" id="btnExportZip" class="m3-btn m3-btn-primary backup-btn">📤 Exportar Copia ZIP</button>
-          <label for="importZipInput" class="m3-btn m3-btn-tonal backup-btn">📥 Restaurar desde ZIP</label>
+          <button type="button" id="btnExportZip" class="m3-btn m3-btn-primary backup-btn">📦 Guardar copia ZIP completa</button>
+          <label for="importZipInput" class="m3-btn m3-btn-tonal backup-btn">📥 Restaurar copia ZIP / JSON</label>
           <button type="button" id="btnShareZip" class="m3-btn m3-btn-tonal backup-btn">☁️ Compartir ZIP / Google Drive</button>
-          <input type="file" id="importZipInput" accept=".zip,application/zip" class="hidden-file-input" />
+          <input type="file" id="importZipInput" accept=".zip,.json,application/zip,application/json" class="hidden-file-input" />
         </div>
+        <details class="report-backup-advanced">
+          <summary>Opciones técnicas de copia (JSON)</summary>
+          <p class="card-helper">Los datos JSON son para restauración técnica, no son un informe legible.</p>
+          <button type="button" id="btnExportJson" class="m3-btn m3-btn-outline backup-btn">Guardar datos originales JSON</button>
+        </details>
         <p id="backupStatusText" class="backup-status-msg"></p>
       </div>
     </section>
+    <!-- VISTA 5: INFORMES PARA PERSONAL E INSPECCIONES -->
+    <section id="view-reports" class="view-section">
+      <div class="m3-card reports-intro-card">
+        <h2 class="card-title">📄 Informes de temperatura</h2>
+        <p class="card-helper">Para responsables e inspecciones sanitarias. No contiene datos técnicos de copia de seguridad.</p>
+        <div class="m3-field"><label for="exportDeviceFilter" class="m3-label">Equipo</label><select class="m3-select" id="exportDeviceFilter"><option value="ALL">Todos los equipos</option></select></div>
+        <div class="m3-field-row"><div class="m3-field"><label for="exportFromDate" class="m3-label">Desde</label><input type="date" id="exportFromDate" class="m3-input" /></div>
+        <div class="m3-field"><label for="exportToDate" class="m3-label">Hasta</label><input type="date" id="exportToDate" class="m3-input" /></div></div>
+      </div>
+      <div class="m3-card reports-pdf-card">
+        <h2 class="card-title">📄 Exportar informe PDF</h2>
+        <p class="card-helper">Informe listo para entregar: nombre claro del equipo, fecha y hora reales de medición, temperatura, responsable y foto integrada en cada registro.</p>
+        <button type="button" id="btnExportPDF" class="m3-btn m3-btn-primary report-main-btn">Exportar informe PDF con fotografías</button>
+      </div>
+      <div class="m3-card reports-csv-card">
+        <h2 class="card-title">📊 Exportar CSV (Excel)</h2>
+        <p class="card-helper">Tabla para filtrar y analizar en Excel: equipo, fecha, hora, temperatura y responsable. No incluye imágenes.</p>
+        <button type="button" id="btnExportCSV" class="m3-btn m3-btn-tonal report-main-btn">Exportar CSV para Excel</button>
+      </div>
+      <p class="report-note">Una medición no realizada nunca se mostrará con una temperatura u hora inventadas. El PDF no añade etiquetas de anotación posterior.</p>
+    </section>
+
   </main>
 
   <!-- Modal Añadir / Editar Equipo -->
@@ -332,6 +358,10 @@
       <span class="nav-pill"><span class="nav-icon">📋</span></span>
       <span class="nav-label">Historial</span>
     </button>
+    <button type="button" class="nav-item" data-target="view-reports">
+      <span class="nav-pill"><span class="nav-icon">📄</span></span>
+      <span class="nav-label">Informes</span>
+    </button>
     <button type="button" class="nav-item" data-target="view-devices">
       <span class="nav-pill"><span class="nav-icon">⚙️</span></span>
       <span class="nav-label">Equipos</span>
@@ -339,6 +369,7 @@
   </nav>
 
   <script src="records-core.js"></script>
+  <script src="report-core.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

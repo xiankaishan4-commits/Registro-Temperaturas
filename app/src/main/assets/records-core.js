@@ -32,7 +32,7 @@
       const d = byId.get(String(r.equipoId));
       const measured = isMeasurement(r);
       return {
-        equipo: String(r.equipoNombre || (d && d.nombre) || 'Equipo'),
+        equipo: String((d && d.nombre) || r.equipoNombre || 'Equipo'),
         fecha: measured ? dateISO(Number(r.timestamp)) : String(r.fecha || ''),
         hora: measured ? timeHHMM(Number(r.timestamp)) : '',
         temperatura: measured ? Number(r.temperatura).toFixed(1).replace('.', ',') : '',

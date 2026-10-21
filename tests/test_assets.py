@@ -25,7 +25,7 @@ class AssetsTest(unittest.TestCase):
         html=(ASSETS/'index.html').read_text(encoding='utf-8')
         js=(ASSETS/'app.js').read_text(encoding='utf-8')
         core=(ASSETS/'records-core.js').read_text(encoding='utf-8')
-        for id in ('recordEntryMode','priorMeasureAt','omittedReason','correctionReason','exportDeviceFilter','exportFromDate','exportToDate','btnExportCSV','btnExportPDF','pastMissingList'):
+        for id in ('btnQuickPDF','btnExportJson','view-reports','recordEntryMode','priorMeasureAt','omittedReason','correctionReason','exportDeviceFilter','exportFromDate','exportToDate','btnExportCSV','btnExportPDF','pastMissingList'):
             self.assertIn('id="'+id+'"',html)
         for term in ('recordedAt','supersedesId','slotProgramado','registroTipo','migrateLegacyData','backup_datos.json','informe_temperaturas.csv'):
             self.assertIn(term,js)
@@ -34,10 +34,16 @@ class AssetsTest(unittest.TestCase):
     def test_android_pdf_and_legacy_backups(self):
         java=(ROOT/'app/src/main/java/com/shanfoodsgroup/temperaturas/MainActivity.java').read_text(encoding='utf-8')
         self.assertIn(r'records-core\\.js',java)
-        self.assertIn('exportPdf(',java)
-        self.assertIn('PdfDocument',java)
+        self.assertIn('generatePdfReport(',java)
+        self.assertIn('PdfReportWriter.write',java)
+        self.assertIn('PdfDocument',(ROOT/'app/src/main/java/com/shanfoodsgroup/temperaturas/PdfReportWriter.java').read_text(encoding='utf-8'))
         self.assertIn('.pdf',java)
+        self.assertIn('informe_interno.zip',java)
+        self.assertIn('report-core',java)
+        html=(ASSETS/'index.html').read_text(encoding='utf-8')
+        self.assertIn('report-core.js',html)
+        self.assertIn('copias de seguridad',html.lower())
         gradle=(ROOT/'app/build.gradle').read_text(encoding='utf-8')
-        self.assertIn('versionCode 4',gradle)
+        self.assertIn('versionCode 5',gradle)
 
 if __name__=='__main__': unittest.main()

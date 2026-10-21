@@ -57,3 +57,15 @@
 ## APK firmado y actualizaciones
 
 Las compilaciones de producción utilizan una única firma persistente (PKCS12). Configure los cuatro GitHub Actions Secrets siguiendo [SIGNING_SETUP.md](SIGNING_SETUP.md). El APK resultante se crea mediante `assembleRelease` y comprueba su certificado SHA-256. **Nunca incluya archivos de clave o contraseñas en el repositorio.**
+
+
+## Informes de temperatura v1.3.0 (sin internet)
+
+- **Informes → Exportar informe PDF**: un PDF A4 legible con dispositivo, fecha y hora real de medición, temperatura, responsable y foto integrada. Disponible un acceso directo **PDF de hoy** en Inicio.
+- **Informes → Exportar CSV**: tabla con columnas para Excel, sin imágenes.
+- **Equipos → Copias de seguridad**: ZIP completo con `backup_datos.json` y fotos base64 conservadas; exportación técnica JSON opcional y restauración aditiva desde ZIP/JSON.
+- El ZIP de transporte del generador PDF es **interno**, no es la copia de seguridad ni se muestra en Android.
+- Los registros omitidos se muestran sin hora ni temperatura inventadas; no se añade el texto «Registro tardío» al informe. Se mantiene la auditoría interna.
+- Límite de 180 registros por PDF para proteger memoria del teléfono. Si hay más, filtra por fechas/equipo y genera varios informes.
+- No se modifica el esquema IndexedDB, los IDs, los datos guardados ni el formato de backup v2.
+- Se mantiene el paquete `com.shanfoodsgroup.temperaturas`, el certificado de firma permanente y se incrementa `versionCode` a 5 para permitir actualización de v1.2.1.

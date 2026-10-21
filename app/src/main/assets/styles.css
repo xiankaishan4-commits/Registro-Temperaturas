@@ -97,7 +97,7 @@ html, body {
   padding: 8px 14px; border-radius: var(--radius-full);
 }
 
-.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 .kpi-box {
   padding: 10px 6px; border-radius: var(--radius-sm);
   text-align: center; display: flex; flex-direction: column; justify-content: center;
@@ -256,7 +256,7 @@ html, body {
 .m3-bottom-nav {
   position: fixed; bottom: 0; left: 0; right: 0; height: 72px;
   background: #ffffff; border-top: 1px solid var(--md-surface-variant);
-  display: grid; grid-template-columns: repeat(4, 1fr); z-index: 200;
+  display: grid; grid-template-columns: repeat(5, 1fr); z-index: 200;
 }
 .nav-item {
   background: none; border: none; display: flex; flex-direction: column;
@@ -289,3 +289,11 @@ html, body {
   border-radius: var(--radius-full); font-size: 14px; font-weight: 600; z-index: 400;
 }
 .empty-placeholder { text-align: center; padding: 22px 12px; color: var(--md-on-surface-variant); font-size: 14px; background: #f3f5fb; border-radius: var(--radius-sm); }
+
+/* Informe habitual, separado de las copias técnicas de datos. */
+.report-quick-card, .reports-pdf-card { border: 1px solid #b6d8f3; }
+.report-main-btn { width: 100%; min-height: 50px; margin-top: 12px; }
+.report-note { padding: 12px 16px; font-size: 12px; color: var(--md-on-surface-variant); }
+.report-backup-advanced { margin: 18px 0 8px; padding: 12px; background: #f3f5fb; border-radius: 10px; }
+.report-backup-advanced summary { font-size: 13px; font-weight: 700; cursor: pointer; }
+@media (max-width: 420px) { .nav-pill { width: 48px; } .nav-label { font-size: 11px; } }

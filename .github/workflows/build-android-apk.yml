@@ -38,9 +38,12 @@ jobs:
         run: |
           node --check app/src/main/assets/app.js
           node --check app/src/main/assets/records-core.js
+          node --check app/src/main/assets/report-core.js
 
       - name: Probar reglas de historial e informes
-        run: node tests/test_records_core.cjs
+        run: |
+          node tests/test_records_core.cjs
+          node tests/test_report_core.cjs
 
       - name: Validar estructura y compatibilidad
         run: python3 -m unittest discover -s tests -v
@@ -97,13 +100,13 @@ jobs:
             exit 1
           fi
           echo "APK signature verified: $ACTUAL"
-          cp "$APK" "$RUNNER_TEMP/Registro_Temperaturas_v1.2.1_Firmado.apk"
+          cp "$APK" "$RUNNER_TEMP/Registro_Temperaturas_v1.3.0_Firmado.apk"
 
       - name: Publicar solo APK firmado
         uses: actions/upload-artifact@v4
         with:
-          name: Registro_Temperaturas_APK_Firmado_v1.2.1
-          path: ${{ runner.temp }}/Registro_Temperaturas_v1.2.1_Firmado.apk
+          name: Registro_Temperaturas_APK_Firmado_v1.3.0
+          path: ${{ runner.temp }}/Registro_Temperaturas_v1.3.0_Firmado.apk
           if-no-files-found: error
           retention-days: 30
 

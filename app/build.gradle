@@ -17,8 +17,8 @@ android {
         minSdk 29
         targetSdk 35
         // Must increase for future updates. Old APKs with a DIFFERENT key cannot be upgraded in place.
-        versionCode 4
-        versionName '1.2.1'
+        versionCode 5
+        versionName '1.3.0'
     }
     signingConfigs {
         release {

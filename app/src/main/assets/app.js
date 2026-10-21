@@ -356,27 +356,43 @@
     if (from && to && from > to) throw new Error('La fecha inicial es posterior a la final');
     return {deviceId:document.getElementById('exportDeviceFilter').value, from, to};
   }
-  function reportRows() { return RecordCore.exportRows(recordsCache,devicesCache,exportFilter()); }
+  function reportRows(filter = exportFilter()) { return RecordCore.exportRows(recordsCache, devicesCache, filter); }
   async function exportCSVReport() {
     try {
-      const rows=reportRows();if(!rows.length) return showSnackbar('No hay registros en el periodo seleccionado');
-      const blob=new Blob([RecordCore.csv(rows)],{type:'text/csv;charset=utf-8'});
-      const name=`Registro_Temperaturas_${getTodayISO()}.csv`;
-      await saveFile(blob,name);
-      showSnackbar('Selecciona dónde guardar el CSV.');
-    } catch(e) {showSnackbar('Error CSV: '+e.message);}
+      const rows = reportRows();
+      if (!rows.length) return showSnackbar('No hay registros en el periodo seleccionado');
+      const blob = new Blob([RecordCore.csv(rows)], {type:'text/csv;charset=utf-8'});
+      await saveFile(blob, `Registro_Temperaturas_${getTodayISO()}.csv`);
+      showSnackbar('Selecciona dónde guardar el CSV para Excel.');
+    } catch(e) { showSnackbar('Error CSV: ' + e.message); }
   }
-  async function exportPDFReport() {
+  let pdfExportBusy = false;
+  async function exportPDFReport(filterOverride = null) {
+    if (pdfExportBusy) return showSnackbar('Ya se está preparando un informe.');
+    const btn = document.getElementById('btnExportPDF');
+    const quick = document.getElementById('btnQuickPDF');
+    pdfExportBusy = true;
+    if (btn) btn.disabled = true;
+    if (quick) quick.disabled = true;
     try {
-      const rows=reportRows();if(!rows.length) return showSnackbar('No hay registros en el periodo seleccionado');
-      if(rows.length>5000) return showSnackbar('Selecciona un periodo menor (máximo 5000 registros).');
-      const report=JSON.stringify({title:'REGISTRO DE TEMPERATURAS', company:'SHANFOODSGROUP S.L.', rows:rows.map(({foto, ...r}) => r)});
-      if(!window.AndroidBridge || typeof window.AndroidBridge.exportPdf !== 'function') {
-        return showSnackbar('La exportación PDF requiere la App Android. Usa CSV en navegador.');
+      const filter = filterOverride || exportFilter();
+      const rows = reportRows(filter);
+      if (!rows.length) return showSnackbar('No hay controles registrados para el periodo seleccionado.');
+      if (!window.AndroidBridge || typeof window.AndroidBridge.begin !== 'function') {
+        return showSnackbar('Para crear el informe PDF con fotografías usa la aplicación Android.');
       }
-      window.AndroidBridge.exportPdf(report);
-      showSnackbar('Selecciona dónde guardar el informe PDF.');
-    } catch(e){showSnackbar('Error PDF: '+e.message);}
+      const selectedDevice = devicesCache.find(d => String(d.id) === String(filter.deviceId));
+      const entries = RTReports.packageReport(rows, {...filter, equipoNombre:selectedDevice ? selectedDevice.nombre : 'Todos los equipos'});
+      const packageZip = createStoredZip(entries);
+      // Archivo temporal privado para el motor PDF nativo. No se muestra ni se exporta al usuario.
+      await nativeExport(packageZip, 'informe_interno.zip', 'pdfReport');
+      showSnackbar('Generando el PDF con fotografías. Selecciona dónde guardarlo.');
+    } catch(e) { showSnackbar('Error al crear el informe PDF: ' + e.message); }
+    finally {
+      pdfExportBusy = false;
+      if (btn) btn.disabled = false;
+      if (quick) quick.disabled = false;
+    }
   }
   function refreshExportDevices() {
     const select=document.getElementById('exportDeviceFilter'), old=select.value;
@@ -714,13 +730,24 @@
     } catch (err) { bridge.cancel(); throw err; }
   }
 
+  // El formato SHANFOODSGROUP_M3 v2 y todos los datos y fotos se mantienen sin cambios.
+  function backupData() {
+    return {format: 'SHANFOODSGROUP_M3', version: 2, exportedAt: new Date().toISOString(),
+      equipos: devicesCache, registros: recordsCache};
+  }
+  async function exportBackupJson() {
+    try {
+      const json = JSON.stringify(backupData());
+      await saveFile(new Blob([json], {type:'application/json'}), `SHANFOODSGROUP_Backup_${getTodayISO()}.json`);
+      showSnackbar('Copia técnica JSON guardada. No es el informe para entregar.');
+    } catch(e) { showSnackbar('Error al guardar JSON: ' + e.message); }
+  }
   async function exportBackupZip(mode = 'save') {
     const statusEl = document.getElementById('backupStatusText');
     const btn = document.getElementById(mode === 'share' ? 'btnShareZip' : 'btnExportZip');
     btn.disabled = true;
     try {
-      const payload = JSON.stringify({ format: 'SHANFOODSGROUP_M3', version: 2, exportedAt: new Date().toISOString(),
-        equipos: devicesCache, registros: recordsCache });
+      const payload = JSON.stringify(backupData());
       const zipBlob = createStoredZip([
         { name: 'backup_datos.json', data: payload },
         { name: 'informe_temperaturas.csv', data: RecordCore.csv(RecordCore.exportRows(recordsCache,devicesCache)) }
@@ -754,13 +781,16 @@
     return {ds, rs};
   }
 
-  async function importBackupZip(file) {
+  async function importBackupFile(file) {
     const statusEl = document.getElementById('backupStatusText');
     try {
       if (file.size > 600 * 1024 * 1024) throw new Error('Archivo demasiado grande (máximo 600 MB).');
-      const files = await extractStoredZip(await file.arrayBuffer());
+      const isJson = /\.json$/i.test(file.name);
+      const files = isJson ? null : await extractStoredZip(await file.arrayBuffer());
       let records, devices;
-      if (files.has('backup_datos.json')) {
+      if (isJson) {
+        ({ds: devices, rs: records} = assertBackupShape(JSON.parse(await file.text())));
+      } else if (files.has('backup_datos.json')) {
         ({ds: devices, rs: records} = assertBackupShape(JSON.parse(new TextDecoder().decode(files.get('backup_datos.json')))));
       } else if (files.has('registro.json')) {
         const manifest = JSON.parse(new TextDecoder().decode(files.get('registro.json')));
@@ -771,7 +801,7 @@
           const binary = new Blob([photoBytes], {type:'image/jpeg'});
           return {...row, foto: await blobAsDataUrl(binary)};
         }));
-      } else throw new Error('Falta backup_datos.json o registro.json');
+      } else throw new Error('Falta backup_datos.json o registro.json en la copia ZIP');
       const newDevices = new Map(); const newRecords = new Map();
       for (const d of devices) { const n = normalizeDevice(d); if (newDevices.has(n.id)) throw new Error('Equipo duplicado en ZIP'); newDevices.set(n.id, n); }
       for (const r of records) { const n = normalizeRecord(r); if (newRecords.has(n.id)) throw new Error('Registro duplicado en ZIP'); newRecords.set(n.id, n); }
@@ -799,7 +829,8 @@
     document.getElementById('recordDeviceSelect').addEventListener('change', updateSelectedDeviceRangeBanner);
     document.getElementById('recordEntryMode').addEventListener('change', () => { correctionTargetId=null; document.getElementById('recordDeviceSelect').disabled=false; toggleEntryMode(); });
     document.getElementById('btnExportCSV').addEventListener('click', exportCSVReport);
-    document.getElementById('btnExportPDF').addEventListener('click', exportPDFReport);
+    document.getElementById('btnExportPDF').addEventListener('click', () => exportPDFReport());
+    document.getElementById('btnQuickPDF').addEventListener('click', () => exportPDFReport({deviceId:'ALL', from:getTodayISO(), to:getTodayISO()}));
     const tempInput = document.getElementById('recordTempInput');
     tempInput.addEventListener('input', validateLiveTemperatureInput);
     document.getElementById('btnTempMinus').addEventListener('click', () => { tempInput.value = ((parseFloat(tempInput.value) || 0) - 0.5).toFixed(1); validateLiveTemperatureInput(); });
@@ -915,9 +946,10 @@
     });
 
     document.getElementById('btnClosePhotoViewer').addEventListener('click', () => document.getElementById('photoViewerModal').classList.add('hidden'));
+    document.getElementById('btnExportJson').addEventListener('click', exportBackupJson);
     document.getElementById('btnExportZip').addEventListener('click', () => exportBackupZip('save'));
     document.getElementById('btnShareZip').addEventListener('click', () => exportBackupZip('share'));
-    document.getElementById('importZipInput').addEventListener('change', async e => { if (e.target.files[0]) await importBackupZip(e.target.files[0]); e.target.value = ''; });
+    document.getElementById('importZipInput').addEventListener('change', async e => { if (e.target.files[0]) await importBackupFile(e.target.files[0]); e.target.value = ''; });
 
     try {
       await initDatabase();
