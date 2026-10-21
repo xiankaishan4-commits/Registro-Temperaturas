@@ -26,7 +26,7 @@ const omission=rows.find(x=>x.fecha==='2026-10-19');
 assert.equal(omission.hora,'');assert.equal(omission.temperatura,'');
 assert.equal(U.exportRows([original,revision,late,missed],devices,{deviceId:'d1',from:'2026-10-20',to:'2026-10-20'}).length,1);
 const csv=U.csv(rows);
-assert(csv.includes('Equipo;')===false); // CSV uses quoted values
+assert(csv.startsWith('\uFEFFsep=;\r\n')); // Excel in Spain detects semicolon separator
 assert(csv.includes('"Equipo";"Fecha de medición";"Hora de medición"'));
 assert(!csv.includes('Registro tardío'));
 assert(csv.includes('"-18,7"'));

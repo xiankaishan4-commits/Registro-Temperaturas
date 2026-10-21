@@ -214,6 +214,7 @@ public class MainActivity extends Activity {
 
     private String exportMime(String name) {
         if (name.endsWith(".csv")) return "text/csv";
+        if (name.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         if (name.endsWith(".pdf")) return "application/pdf";
         if (name.endsWith(".json")) return "application/json";
         return "application/zip";
@@ -243,7 +244,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void begin(String filename){
             synchronized(backupLock){
                 closeStream();
-                if(filename==null||!filename.matches("[a-zA-Z0-9_.-]{1,120}")||(!filename.endsWith(".zip")&&!filename.endsWith(".csv")&&!filename.endsWith(".pdf")&&!filename.endsWith(".json")))throw new IllegalArgumentException("Nombre no válido");
+                if(filename==null||!filename.matches("[a-zA-Z0-9_.-]{1,120}")||(!filename.endsWith(".zip")&&!filename.endsWith(".csv")&&!filename.endsWith(".xlsx")&&!filename.endsWith(".pdf")&&!filename.endsWith(".json")))throw new IllegalArgumentException("Nombre no válido");
                 try{
                     File dest=new File(getCacheDir(),"export_"+System.currentTimeMillis()+"_"+filename);
                     workingFile=dest;backupStream=new FileOutputStream(dest);

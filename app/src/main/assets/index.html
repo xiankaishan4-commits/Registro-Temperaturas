@@ -271,16 +271,29 @@
         <div class="m3-field"><label for="exportDeviceFilter" class="m3-label">Equipo</label><select class="m3-select" id="exportDeviceFilter"><option value="ALL">Todos los equipos</option></select></div>
         <div class="m3-field-row"><div class="m3-field"><label for="exportFromDate" class="m3-label">Desde</label><input type="date" id="exportFromDate" class="m3-input" /></div>
         <div class="m3-field"><label for="exportToDate" class="m3-label">Hasta</label><input type="date" id="exportToDate" class="m3-input" /></div></div>
+        <div class="export-date-presets" aria-label="Periodos de informes">
+          <button type="button" class="m3-btn m3-btn-outline m3-btn-sm" data-export-preset="today">Hoy</button>
+          <button type="button" class="m3-btn m3-btn-outline m3-btn-sm" data-export-preset="week">7 días</button>
+          <button type="button" class="m3-btn m3-btn-outline m3-btn-sm" data-export-preset="month">Este mes</button>
+          <button type="button" class="m3-btn m3-btn-outline m3-btn-sm" data-export-preset="previous">Mes anterior</button>
+          <button type="button" class="m3-btn m3-btn-outline m3-btn-sm" data-export-preset="all">Todo</button>
+        </div>
+        <p class="card-helper">Elige periodo y equipo. El Excel tendrá filtros, resumen por días y equipos y una pestaña por mes (hasta 24 meses).</p>
       </div>
       <div class="m3-card reports-pdf-card">
         <h2 class="card-title">📄 Exportar informe PDF</h2>
         <p class="card-helper">Informe listo para entregar: nombre claro del equipo, fecha y hora reales de medición, temperatura, responsable y foto integrada en cada registro.</p>
         <button type="button" id="btnExportPDF" class="m3-btn m3-btn-primary report-main-btn">Exportar informe PDF con fotografías</button>
       </div>
+      <div class="m3-card reports-excel-card">
+        <h2 class="card-title">📗 Exportar Excel organizado (.xlsx)</h2>
+        <p class="card-helper">Formato real de Excel: columnas separadas, fechas y temperaturas numéricas, filtros de equipo y fecha, encabezados fijos, «Resumen diario», «Resumen equipos», «Registros» y pestañas por mes. Sin fotografías: usa PDF para inspecciones.</p>
+        <button type="button" id="btnExportExcel" class="m3-btn m3-btn-primary report-main-btn">Exportar Excel organizado</button>
+      </div>
       <div class="m3-card reports-csv-card">
-        <h2 class="card-title">📊 Exportar CSV (Excel)</h2>
-        <p class="card-helper">Tabla para filtrar y analizar en Excel: equipo, fecha, hora, temperatura y responsable. No incluye imágenes.</p>
-        <button type="button" id="btnExportCSV" class="m3-btn m3-btn-tonal report-main-btn">Exportar CSV para Excel</button>
+        <h2 class="card-title">📊 Exportar CSV (intercambio de datos)</h2>
+        <p class="card-helper">Archivo de texto separado por «;», con indicación de separador para Excel. Para trabajar muchos días usa mejor el Excel .xlsx anterior.</p>
+        <button type="button" id="btnExportCSV" class="m3-btn m3-btn-tonal report-main-btn">Exportar CSV</button>
       </div>
       <p class="report-note">Una medición no realizada nunca se mostrará con una temperatura u hora inventadas. El PDF no añade etiquetas de anotación posterior.</p>
     </section>
@@ -370,6 +383,7 @@
 
   <script src="records-core.js"></script>
   <script src="report-core.js"></script>
+  <script src="excel-core.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

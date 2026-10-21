@@ -38,6 +38,8 @@
         temperatura: measured ? Number(r.temperatura).toFixed(1).replace('.', ',') : '',
         responsable: String(r.responsable || ''),
         observaciones: measured ? String(r.observaciones || '') : 'Sin medición',
+        minTemp: d && Number.isFinite(Number(d.minTemp)) ? Number(d.minTemp) : null,
+        maxTemp: d && Number.isFinite(Number(d.maxTemp)) ? Number(d.maxTemp) : null,
         foto: measured ? (r.foto || null) : null,
         id: String(r.id || '')
       };
@@ -50,7 +52,8 @@
       return '"' + v.replace(/"/g,'""') + '"';
     };
     const columns = ['Equipo', 'Fecha de medición', 'Hora de medición', 'Temperatura (°C)', 'Responsable', 'Observaciones'];
-    return '\uFEFF' + [columns, ...rows.map(r=>[r.equipo,r.fecha,r.hora,r.temperatura,r.responsable,r.observaciones])]
+    // Excel uses the sep=; directive to split Spanish CSV columns correctly.
+    return '\uFEFFsep=;\r\n' + [columns, ...rows.map(r=>[r.equipo,r.fecha,r.hora,r.temperatura,r.responsable,r.observaciones])]
       .map(a => a.map((v,i)=>escaped(v,i)).join(';')).join('\r\n') + '\r\n';
   }
   function slotKey(ms) {

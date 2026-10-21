@@ -297,3 +297,9 @@ html, body {
 .report-backup-advanced { margin: 18px 0 8px; padding: 12px; background: #f3f5fb; border-radius: 10px; }
 .report-backup-advanced summary { font-size: 13px; font-weight: 700; cursor: pointer; }
 @media (max-width: 420px) { .nav-pill { width: 48px; } .nav-label { font-size: 11px; } }
+
+/* Exportar registros a Excel con rangos rápidos de fechas. */
+.export-date-presets { display:flex; flex-wrap:wrap; gap:7px; margin:12px 0 8px; }
+.export-date-presets .m3-btn { flex:0 0 auto; min-width:unset; }
+.export-date-presets .m3-btn.selected { background:#d6e8ff; color:#17457a; border-color:#17457a; font-weight:700; }
+.reports-excel-card { border-color:#c8dfd8; }

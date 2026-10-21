@@ -69,3 +69,10 @@ Las compilaciones de producción utilizan una única firma persistente (PKCS12).
 - Límite de 180 registros por PDF para proteger memoria del teléfono. Si hay más, filtra por fechas/equipo y genera varios informes.
 - No se modifica el esquema IndexedDB, los IDs, los datos guardados ni el formato de backup v2.
 - Se mantiene el paquete `com.shanfoodsgroup.temperaturas`, el certificado de firma permanente y se incrementa `versionCode` a 5 para permitir actualización de v1.2.1.
+
+
+## Exportación Excel (v1.3.1)
+
+En «Informes», seleccione equipo y fechas o pulse «Hoy», «7 días», «Este mes», «Mes anterior» o «Todo». **Exportar Excel organizado** guarda un archivo `.xlsx` real sin conexión y con filtros por fecha y equipo. Incluye «Resumen diario», «Resumen equipos», «Registros» y, para un periodo de hasta 24 meses diferentes, pestañas por mes. Las columnas de fecha, hora y temperatura son valores numéricos reales de Excel, no texto pegado en una sola columna. Se congelan encabezados. «Exportar CSV» sigue disponible y ahora escribe `sep=;` para que Excel detecte el separador de las columnas en España. El informe PDF con fotografías y las copias ZIP/JSON no cambian.
+
+El informe no inventa horas ni temperaturas para controles omitidos. El Excel no lleva fotografías: para inspecciones sanitarias se utiliza el PDF con fotos.

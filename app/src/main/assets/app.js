@@ -357,6 +357,40 @@
     return {deviceId:document.getElementById('exportDeviceFilter').value, from, to};
   }
   function reportRows(filter = exportFilter()) { return RecordCore.exportRows(recordsCache, devicesCache, filter); }
+  async function exportExcelReport() {
+    const button = document.getElementById('btnExportExcel');
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+      const filter = exportFilter();
+      const rows = reportRows(filter);
+      if (!rows.length) return showSnackbar('No hay registros en el periodo seleccionado');
+      const entries = RTExcel.build(rows, filter);
+      const blob = createStoredZip(entries);
+      await saveFile(blob, `Registro_Temperaturas_${getTodayISO()}.xlsx`);
+      showSnackbar('Excel preparado: resumen diario, resumen por equipo, registros y hojas mensuales.');
+    } catch (e) { showSnackbar('Error Excel: ' + e.message); }
+    finally { button.disabled = false; }
+  }
+  function applyExportPreset(preset) {
+    const now = new Date();
+    const from = document.getElementById('exportFromDate');
+    const to = document.getElementById('exportToDate');
+    const localDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    if (preset === 'all') { from.value=''; to.value=''; }
+    else if (preset === 'today') { from.value=to.value=localDate(now); }
+    else if (preset === 'week') {
+      const earlier = new Date(now.getFullYear(),now.getMonth(),now.getDate()-6);
+      from.value=localDate(earlier);to.value=localDate(now);
+    } else if (preset === 'month') {
+      from.value=localDate(new Date(now.getFullYear(),now.getMonth(),1));
+      to.value=localDate(now);
+    } else if (preset === 'previous') {
+      from.value=localDate(new Date(now.getFullYear(),now.getMonth()-1,1));
+      to.value=localDate(new Date(now.getFullYear(),now.getMonth(),0));
+    }
+    document.querySelectorAll('[data-export-preset]').forEach(b=>b.classList.toggle('selected', b.dataset.exportPreset === preset));
+  }
   async function exportCSVReport() {
     try {
       const rows = reportRows();
@@ -828,6 +862,9 @@
     document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => switchView(b.dataset.target)));
     document.getElementById('recordDeviceSelect').addEventListener('change', updateSelectedDeviceRangeBanner);
     document.getElementById('recordEntryMode').addEventListener('change', () => { correctionTargetId=null; document.getElementById('recordDeviceSelect').disabled=false; toggleEntryMode(); });
+    document.getElementById('btnExportExcel').addEventListener('click', exportExcelReport);
+    document.querySelectorAll('[data-export-preset]').forEach(b => b.addEventListener('click', () => applyExportPreset(b.dataset.exportPreset)));
+    applyExportPreset('month');
     document.getElementById('btnExportCSV').addEventListener('click', exportCSVReport);
     document.getElementById('btnExportPDF').addEventListener('click', () => exportPDFReport());
     document.getElementById('btnQuickPDF').addEventListener('click', () => exportPDFReport({deviceId:'ALL', from:getTodayISO(), to:getTodayISO()}));
