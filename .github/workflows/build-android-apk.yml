@@ -121,7 +121,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Registro_Temperaturas_APK_Firmado_v1.4.0
-          path: ${{ runner.temp }}/Registro_Temperaturas_v1.3.1_Firmado.apk
+          path: ${{ runner.temp }}/Registro_Temperaturas_v1.4.0_Firmado.apk
           if-no-files-found: error
           retention-days: 30
 
