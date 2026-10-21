@@ -115,13 +115,13 @@ jobs:
             exit 1
           fi
           echo "APK signature verified: $ACTUAL"
-          cp "$APK" "$RUNNER_TEMP/Registro_Temperaturas_v1.4.0_Firmado.apk"
+          cp "$APK" "$RUNNER_TEMP/Registro_Temperaturas_v1.4.1_Firmado.apk"
 
       - name: Publicar solo APK firmado
         uses: actions/upload-artifact@v4
         with:
-          name: Registro_Temperaturas_APK_Firmado_v1.4.0
-          path: ${{ runner.temp }}/Registro_Temperaturas_v1.4.0_Firmado.apk
+          name: Registro_Temperaturas_APK_Firmado_v1.4.1
+          path: ${{ runner.temp }}/Registro_Temperaturas_v1.4.1_Firmado.apk
           if-no-files-found: error
           retention-days: 30
 
