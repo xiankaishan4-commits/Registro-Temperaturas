@@ -359,20 +359,21 @@
   }
   function reportRows(filter = exportFilter()) { return RecordCore.exportRows(recordsCache, devicesCache, filter); }
   async function exportExcelReport() {
-    const button = document.getElementById('btnExportExcel');
-    if (button.disabled) return;
-    button.disabled = true;
+    const button=document.getElementById('btnExportExcel');
+    if(button.disabled)return;
+    button.disabled=true;
     try {
-      const month = document.getElementById('exportMonth').value;
-      const deviceId = document.getElementById('exportDeviceFilter').value;
-      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return showSnackbar('Selecciona el mes para Excel');
-      const rows = reportRows({deviceId, from:month+'-01', to:month+'-31'});
-      const bytes = await RTExcel.build(rows, devicesCache, {month, deviceId});
-      const blob = new Blob([bytes], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-      await saveFile(blob, `Registro_Temperaturas_${month}.xlsx`);
-      showSnackbar('Excel listo: Resumen Mensual y Registro Detallado.');
-    } catch (e) { showSnackbar('Error Excel: ' + e.message); }
-    finally { button.disabled = false; }
+      const filter=exportFilter();
+      const rows=reportRows(filter);
+      if(!rows.length&&(!filter.from||!filter.to))return showSnackbar('Sin registros: selecciona Desde / Hasta.');
+      const dates=rows.map(r=>r.fecha).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+      const from=filter.from||dates[0],to=filter.to||dates[dates.length-1];
+      const bytes=await RTExcel.build(rows,devicesCache,{from,to,deviceId:filter.deviceId});
+      const blob=new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      await saveFile(blob,'Registro_Temperaturas_'+from+'_a_'+to+'.xlsx');
+      showSnackbar('Excel creado: resúmenes mensuales y detalles de las fechas elegidas.');
+    }catch(e){showSnackbar('Error Excel: '+e.message);}
+    finally{button.disabled=false;}
   }
   function applyExportPreset(preset) {
     const now = new Date();
@@ -391,7 +392,6 @@
       from.value=localDate(new Date(now.getFullYear(),now.getMonth()-1,1));
       to.value=localDate(new Date(now.getFullYear(),now.getMonth(),0));
     }
-    if (['month','previous','today'].includes(preset)) document.getElementById('exportMonth').value=from.value.slice(0,7);
     document.querySelectorAll('[data-export-preset]').forEach(b=>b.classList.toggle('selected', b.dataset.exportPreset === preset));
   }
   async function exportCSVReport() {
@@ -866,7 +866,6 @@
     document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => switchView(b.dataset.target)));
     document.getElementById('recordDeviceSelect').addEventListener('change', updateSelectedDeviceRangeBanner);
     document.getElementById('recordEntryMode').addEventListener('change', () => { correctionTargetId=null; document.getElementById('recordDeviceSelect').disabled=false; toggleEntryMode(); });
-    document.getElementById('exportMonth').value = getTodayISO().slice(0,7);
     document.getElementById('btnExportExcel').addEventListener('click', exportExcelReport);
     document.querySelectorAll('[data-export-preset]').forEach(b => b.addEventListener('click', () => applyExportPreset(b.dataset.exportPreset)));
     applyExportPreset('month');
