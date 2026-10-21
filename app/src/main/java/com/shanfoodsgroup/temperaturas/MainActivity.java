@@ -1,6 +1,8 @@
 package com.shanfoodsgroup.temperaturas;
 
 import android.app.Activity;
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.content.Intent;
 import android.content.ContentValues;
 import android.content.Context;
@@ -66,6 +68,11 @@ public class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(true);
         view.addJavascriptInterface(new BackupBridge(),"AndroidBridge");
+        view.addJavascriptInterface(new ReminderBridge(),"ReminderBridge");
+        ReminderScheduler.scheduleNext(this);
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 311);
+        }
         view.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest request){
                 Uri u=request.getUrl();
@@ -202,6 +209,12 @@ public class MainActivity extends Activity {
             save.setType(name.endsWith(".csv")?"text/csv":"application/zip");
             save.putExtra(Intent.EXTRA_TITLE,name);
             startActivityForResult(save,REQUEST_EXPORT);
+        }
+    }
+
+    private class ReminderBridge {
+        @JavascriptInterface public void sync(String snapshotJson) {
+            ReminderScheduler.saveSnapshot(MainActivity.this, snapshotJson);
         }
     }
 

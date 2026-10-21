@@ -252,17 +252,44 @@
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+
+  function reminderSlotStart(timestamp = Date.now()) {
+    const now = new Date(timestamp);
+    const night = now.getHours() >= 21 || now.getHours() < 9;
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), night ? 21 : 9);
+    if (now.getHours() < 9) start.setDate(start.getDate() - 1);
+    return { start: start.getTime(), label: night ? 'noche (21:00)' : 'mañana (09:00)' };
+  }
+
+  // Copy only device IDs and time stamps into the Android notification scheduler.
+  // IndexedDB remains authoritative. Photos and temperatures never enter notifications.
+  function syncReminderSnapshot() {
+    if (!window.ReminderBridge || typeof window.ReminderBridge.sync !== 'function') return;
+    const cutoff = Date.now() - 48 * 60 * 60 * 1000;
+    const payload = {
+      devices: devicesCache.filter(d => d.activo !== false).map(d => ({id: d.id, name: d.nombre})),
+      entries: recordsCache.filter(r => Number.isFinite(r.timestamp) && r.timestamp >= cutoff)
+        .map(r => ({ deviceId: r.equipoId, timestamp: r.timestamp }))
+    };
+    try { window.ReminderBridge.sync(JSON.stringify(payload)); }
+    catch (error) { console.error('Error sincronizando recordatorios', error); }
+  }
+
   function renderAll() {
     document.getElementById('currentDateBadge').textContent = formatDisplayDate(getTodayISO());
     renderHomeView();
     renderRecordFormSelectors();
     renderHistoryView();
     renderManageDevicesView();
+    syncReminderSnapshot();
   }
 
   function renderHomeView() {
     const today = getTodayISO();
-    const todayRecords = recordsCache.filter(r => r.fecha === today);
+    const slot = reminderSlotStart();
+    const todayRecords = recordsCache.filter(r => r.timestamp >= slot.start && r.timestamp <= Date.now());
+    const slotTitle = document.getElementById('reminderSlotHeading');
+    if (slotTitle) slotTitle.textContent = 'Pendientes — turno de ' + slot.label;
     const pendingContainer = document.getElementById('pendingDevicesList');
     const checkedContainer = document.getElementById('checkedDevicesList');
     pendingContainer.innerHTML = '';
