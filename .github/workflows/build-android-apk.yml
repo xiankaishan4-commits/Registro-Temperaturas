@@ -34,6 +34,19 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Integrar ExcelJS local para uso offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/assets/vendor
+          curl --fail --location --silent --show-error --retry 4 --retry-delay 2 \
+            --proto '=https' --tlsv1.2 \
+            'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js' \
+            --output app/src/main/assets/vendor/exceljs.min.js
+          test "$(wc -c < app/src/main/assets/vendor/exceljs.min.js)" -gt 500000
+          node -e "const E=require('./app/src/main/assets/vendor/exceljs.min.js'); if(!E.Workbook) process.exit(1)"
+          sha256sum app/src/main/assets/vendor/exceljs.min.js
+
       - name: Comprobar JavaScript
         run: |
           node --check app/src/main/assets/app.js
@@ -102,12 +115,12 @@ jobs:
             exit 1
           fi
           echo "APK signature verified: $ACTUAL"
-          cp "$APK" "$RUNNER_TEMP/Registro_Temperaturas_v1.3.1_Firmado.apk"
+          cp "$APK" "$RUNNER_TEMP/Registro_Temperaturas_v1.4.0_Firmado.apk"
 
       - name: Publicar solo APK firmado
         uses: actions/upload-artifact@v4
         with:
-          name: Registro_Temperaturas_APK_Firmado_v1.3.1
+          name: Registro_Temperaturas_APK_Firmado_v1.4.0
           path: ${{ runner.temp }}/Registro_Temperaturas_v1.3.1_Firmado.apk
           if-no-files-found: error
           retention-days: 30

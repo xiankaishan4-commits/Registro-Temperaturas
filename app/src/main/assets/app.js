@@ -183,7 +183,8 @@
       minTemp: minT,
       maxTemp: maxT,
       ubicacion: raw.ubicacion || raw.location || '',
-      activo: raw.activo !== undefined ? Boolean(raw.activo) : raw.active !== false
+      activo: raw.activo !== undefined ? Boolean(raw.activo) : raw.active !== false,
+      orden: raw.orden == null || raw.orden === '' ? null : Number(raw.orden)
     };
   }
 
@@ -362,13 +363,14 @@
     if (button.disabled) return;
     button.disabled = true;
     try {
-      const filter = exportFilter();
-      const rows = reportRows(filter);
-      if (!rows.length) return showSnackbar('No hay registros en el periodo seleccionado');
-      const entries = RTExcel.build(rows, filter);
-      const blob = createStoredZip(entries);
-      await saveFile(blob, `Registro_Temperaturas_${getTodayISO()}.xlsx`);
-      showSnackbar('Excel preparado: resumen diario, resumen por equipo, registros y hojas mensuales.');
+      const month = document.getElementById('exportMonth').value;
+      const deviceId = document.getElementById('exportDeviceFilter').value;
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return showSnackbar('Selecciona el mes para Excel');
+      const rows = reportRows({deviceId, from:month+'-01', to:month+'-31'});
+      const bytes = await RTExcel.build(rows, devicesCache, {month, deviceId});
+      const blob = new Blob([bytes], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      await saveFile(blob, `Registro_Temperaturas_${month}.xlsx`);
+      showSnackbar('Excel listo: Resumen Mensual y Registro Detallado.');
     } catch (e) { showSnackbar('Error Excel: ' + e.message); }
     finally { button.disabled = false; }
   }
@@ -389,6 +391,7 @@
       from.value=localDate(new Date(now.getFullYear(),now.getMonth()-1,1));
       to.value=localDate(new Date(now.getFullYear(),now.getMonth(),0));
     }
+    if (['month','previous','today'].includes(preset)) document.getElementById('exportMonth').value=from.value.slice(0,7);
     document.querySelectorAll('[data-export-preset]').forEach(b=>b.classList.toggle('selected', b.dataset.exportPreset === preset));
   }
   async function exportCSVReport() {
@@ -678,6 +681,7 @@
     document.getElementById('deviceMinTempInput').value = device ? device.minTemp : 0;
     document.getElementById('deviceMaxTempInput').value = device ? device.maxTemp : 4;
     document.getElementById('deviceLocationInput').value = device ? (device.ubicacion || '') : '';
+    document.getElementById('deviceOrderInput').value = device && device.orden != null ? device.orden : '';
     document.getElementById('deviceActiveInput').checked = !device || device.activo !== false;
     document.getElementById('deviceModal').classList.remove('hidden');
   }
@@ -862,6 +866,7 @@
     document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => switchView(b.dataset.target)));
     document.getElementById('recordDeviceSelect').addEventListener('change', updateSelectedDeviceRangeBanner);
     document.getElementById('recordEntryMode').addEventListener('change', () => { correctionTargetId=null; document.getElementById('recordDeviceSelect').disabled=false; toggleEntryMode(); });
+    document.getElementById('exportMonth').value = getTodayISO().slice(0,7);
     document.getElementById('btnExportExcel').addEventListener('click', exportExcelReport);
     document.querySelectorAll('[data-export-preset]').forEach(b => b.addEventListener('click', () => applyExportPreset(b.dataset.exportPreset)));
     applyExportPreset('month');
@@ -973,6 +978,7 @@
         minTemp: parseFloat(document.getElementById('deviceMinTempInput').value),
         maxTemp: parseFloat(document.getElementById('deviceMaxTempInput').value),
         ubicacion: document.getElementById('deviceLocationInput').value.trim(),
+        orden: document.getElementById('deviceOrderInput').value.trim() ? Number(document.getElementById('deviceOrderInput').value) : null,
         activo: document.getElementById('deviceActiveInput').checked,
         createdAt: (devicesCache.find(d=>d.id===document.getElementById('deviceIdInput').value)||{}).createdAt||Date.now()
       });

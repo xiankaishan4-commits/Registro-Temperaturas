@@ -76,3 +76,8 @@ Las compilaciones de producción utilizan una única firma persistente (PKCS12).
 En «Informes», seleccione equipo y fechas o pulse «Hoy», «7 días», «Este mes», «Mes anterior» o «Todo». **Exportar Excel organizado** guarda un archivo `.xlsx` real sin conexión y con filtros por fecha y equipo. Incluye «Resumen diario», «Resumen equipos», «Registros» y, para un periodo de hasta 24 meses diferentes, pestañas por mes. Las columnas de fecha, hora y temperatura son valores numéricos reales de Excel, no texto pegado en una sola columna. Se congelan encabezados. «Exportar CSV» sigue disponible y ahora escribe `sep=;` para que Excel detecte el separador de las columnas en España. El informe PDF con fotografías y las copias ZIP/JSON no cambian.
 
 El informe no inventa horas ni temperaturas para controles omitidos. El Excel no lleva fotografías: para inspecciones sanitarias se utiliza el PDF con fotos.
+
+
+## ExcelJS exportación mensual v1.4.0
+
+El APK lleva ExcelJS 4.4.0 integrado sin dependencia de red. El archivo Excel .xlsx contiene exactamente dos hojas: **Resumen Mensual** (equipos personalizados como filas, días del mes como columnas, lecturas múltiples en la misma celda, observaciones amarillas y ausencia de lectura en blanco) y **Registro Detallado** (6 columnas tipadas, filtros, cabecera fija y fecha/equipo/hora ascendentes). Se puede escoger mes y equipo; el orden de los equipos es natural (1, 2, 10) o el campo opcional Orden. PDF, CSV y copia ZIP/JSON mantienen su formato y operación. No se modifican IndexedDB ni fotos.

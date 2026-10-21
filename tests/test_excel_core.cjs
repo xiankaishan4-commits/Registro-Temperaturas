@@ -1,43 +1,60 @@
-const assert = require('node:assert/strict');
-const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
-const dir=path.join(__dirname,'../app/src/main/assets');
-const ctx={}; vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(path.join(dir,'excel-core.js'),'utf8'),ctx);
+const assert=require('node:assert/strict');
+const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const assets=path.join(__dirname,'../app/src/main/assets');
+const ExcelJS=require(path.join(assets,'vendor/exceljs.min.js'));
+const ctx={ExcelJS,Intl,Date};vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(assets,'excel-core.js'),'utf8'),ctx);
 const X=ctx.RTExcel;
-const sample=[
-  {equipo:'Congelador 1',fecha:'2026-10-20',hora:'21:30',temperatura:'-21,5',minTemp:-24,maxTemp:-18,responsable:'Ana',observaciones:'',id:'1'},
-  {equipo:'Mural 1 Carnes',fecha:'2026-10-21',hora:'09:12',temperatura:'3,5',minTemp:0,maxTemp:4,responsable:'Luis',observaciones:'',id:'2'},
-  {equipo:'Mural 1 Carnes',fecha:'2026-10-21',hora:'21:18',temperatura:'',minTemp:0,maxTemp:4,responsable:'',observaciones:'Sin medición',id:'3'},
-  {equipo:'Mural 2',fecha:'2026-09-29',hora:'08:40',temperatura:'5,0',minTemp:0,maxTemp:4,responsable:'=HYPERLINK("x")',observaciones:'',id:'4'}
+const devices=[{id:'10',nombre:'Mural 10'},{id:'1',nombre:'Mural 1'},{id:'2',nombre:'Mural 2'},{id:'x',nombre:'Cámara Árbol'},{id:'ordered',nombre:'Nevera especial',orden:1}];
+const rows=[
+ {equipo:'Mural 10',fecha:'2026-10-03',hora:'21:00',temperatura:'4,0',responsable:'Ana',observaciones:'Descarche',id:'r10'},
+ {equipo:'Mural 1',fecha:'2026-10-02',hora:'09:13',temperatura:'3,0',responsable:'Luis',observaciones:'',id:'r1'},
+ {equipo:'Mural 1',fecha:'2026-10-02',hora:'21:13',temperatura:'4.0',responsable:'Luis',observaciones:'',id:'r2'},
+ {equipo:'Mural 2',fecha:'2026-10-02',hora:'15:00',temperatura:'-22,5',responsable:'=HYPERLINK("x")',observaciones:'',id:'r3'},
+ {equipo:'Mural 2',fecha:'2026-10-03',hora:'',temperatura:'',responsable:'',observaciones:'Sin medición',id:'r4'},
+ {equipo:'Cámara Árbol',fecha:'2026-09-29',hora:'09:10',temperatura:'2,0',responsable:'Eva',observaciones:'',id:'old'}
 ];
-assert.equal(X.excelDate('2026-10-21'),46316);
-assert.equal(X.excelDate('2026-02-30'),null);
-assert.equal(X.excelTime('21:30'),21.5/24);
-assert.equal(X.excelTime('24:00'),null);
-const rows=X.normalized(sample);
-assert.equal(rows[0].fecha,'2026-10-21');
-assert.equal(rows[0].equipo,'Mural 1 Carnes');
-assert.equal(rows.find(x=>x.equipo==='Mural 2').estado,'FUERA DE RANGO');
-assert.equal(rows.find(x=>x.hora==='21:18').estado,'SIN MEDICIÓN');
-const files=X.build(sample),byName=new Map(files.map(e=>[e.name,e.data]));
-assert.equal(byName.size,10); // OOXML base 5 files + 5 worksheets (2 monthly tabs)
-assert(byName.get('[Content_Types].xml').includes('spreadsheetml.sheet.main+xml'));
-assert(byName.get('xl/workbook.xml').includes('Resumen diario'));
-assert(byName.get('xl/workbook.xml').includes('2026-09'));
-assert(byName.get('xl/workbook.xml').includes('2026-10'));
-assert(byName.get('xl/worksheets/sheet3.xml').includes('autoFilter ref="A1:I5"'));
-assert(byName.get('xl/worksheets/sheet3.xml').includes('state="frozen"'));
-assert(byName.get('xl/worksheets/sheet3.xml').includes('t="inlineStr"'));
-assert(!byName.get('xl/worksheets/sheet3.xml').includes('<f>'));
-assert(byName.get('xl/worksheets/sheet3.xml').includes('&quot;x&quot;'));
-assert(!byName.get('xl/worksheets/sheet3.xml').includes('Registro tardío'));
-assert(byName.get('xl/worksheets/sheet3.xml').includes('>46316</v>')); // actual Excel dates
-assert(byName.get('xl/worksheets/sheet3.xml').includes('>-21.5</v>')); // numeric temp
-assert(byName.get('xl/worksheets/sheet3.xml').includes('r="D3" s="4"/')); // missing temp stays blank
-const daily=byName.get('xl/worksheets/sheet1.xml');
-assert(daily.includes('A1:F4'));
-assert.throws(()=>X.build([]),/No hay/);
-assert.throws(()=>X.build(Array(25001).fill(sample[0])),/Demasiados/);
-console.log('Excel export: 20 checks passed');
-// Produce a small fixture for ZIP / spreadsheet reader validation.
-fs.writeFileSync(path.join(__dirname, 'excel_fixture.json'), JSON.stringify(files));
+const m=X.prepare(rows,devices,{month:'2026-10',deviceId:'ALL'});
+assert.equal(m.month.days,31);
+assert.deepEqual(Array.from(m.matrix.map(x=>x.name)),['Nevera especial','Cámara Árbol','Mural 1','Mural 2','Mural 10']);
+assert.equal(m.matrix.length,5);
+assert(m.matrix.find(x=>x.name==='Mural 1').cells[1].value.includes('09:13: 3.0°C\n21:13: 4.0°C'));
+assert.equal(m.matrix.find(x=>x.name==='Mural 2').cells[2].value,'');
+assert(m.matrix.find(x=>x.name==='Mural 10').cells[2].highlight);
+assert(m.matrix.find(x=>x.name==='Mural 10').cells[2].value.includes('Descarche'));
+assert(m.matrix.find(x=>x.name==='Nevera especial').cells.every(c=>!c.value));
+assert.equal(m.details.length,5);
+assert.equal(m.details[0].fecha,'2026-10-02');
+assert.equal(m.details[0].hora,'09:13');
+assert.equal(m.details.find(x=>x.temperatura===-22.5).temperatura,-22.5);
+assert.equal(X.prepare([],devices,{month:'2026-02'}).month.days,28);
+assert.equal(X.prepare([],devices,{month:'2028-02'}).month.days,29);
+assert.throws(()=>X.prepare([],devices,{month:'2026-13'}),/válido/);
+(async()=>{
+ const bytes=await X.build(rows,devices,{month:'2026-10'});
+ assert(bytes instanceof Uint8Array && bytes.length>5000);
+ assert.equal(Buffer.from(bytes).toString('ascii',0,2),'PK');
+ const book=new ExcelJS.Workbook();await book.xlsx.load(bytes);
+ assert.deepEqual(book.worksheets.map(s=>s.name),['Resumen Mensual','Registro Detallado']);
+ const matrix=book.getWorksheet('Resumen Mensual');
+ assert.equal(matrix.getCell('A3').value,'Equipo');
+ assert.equal(matrix.getCell('B3').value,'01');
+ assert.equal(matrix.getCell('AF3').value,'31');
+ assert.equal(matrix.getCell('A4').value,'Nevera especial');
+ const all=matrix.getRows(4,5);
+ const mural10=all.find(r=>r.getCell(1).value==='Mural 10');
+ assert(mural10.getCell(4).value.includes('Descarche'));
+ assert.equal(mural10.getCell(4).fill.fgColor.argb,'FFFFEFBE');
+ const mural1=all.find(r=>r.getCell(1).value==='Mural 1');
+ assert(mural1.getCell(3).value.includes('\n'));
+ const detail=book.getWorksheet('Registro Detallado');
+ assert.deepEqual(detail.getRow(1).values.slice(1),['Equipo','Fecha de medición','Hora de medición','Temperatura (°C)','Responsable','Observaciones']);
+ assert.equal(detail.getRow(2).getCell(4).value,3);
+ assert.equal(detail.getRow(2).getCell(4).numFmt,'0.0');
+ assert(detail.getRow(2).getCell(2).value instanceof Date);
+ assert.equal(detail.getRow(2).getCell(3).numFmt,'hh:mm');
+ assert.equal(detail.getRow(5).getCell(4).value,null);
+ assert(detail.views[0].state==='frozen');
+ assert(detail.autoFilter);
+ console.log('ExcelJS Monthly Matrix + Details: 25 checks passed');
+ fs.writeFileSync(path.join(__dirname,'excel_new_fixture.xlsx'),bytes);
+})().catch(e=>{console.error(e);process.exitCode=1;});

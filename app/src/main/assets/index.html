@@ -278,7 +278,7 @@
           <button type="button" class="m3-btn m3-btn-outline m3-btn-sm" data-export-preset="previous">Mes anterior</button>
           <button type="button" class="m3-btn m3-btn-outline m3-btn-sm" data-export-preset="all">Todo</button>
         </div>
-        <p class="card-helper">Elige periodo y equipo. El Excel tendrá filtros, resumen por días y equipos y una pestaña por mes (hasta 24 meses).</p>
+        <p class="card-helper">Desde/Hasta se usa para PDF y CSV; el Excel utiliza el mes elegido debajo.</p>
       </div>
       <div class="m3-card reports-pdf-card">
         <h2 class="card-title">📄 Exportar informe PDF</h2>
@@ -287,7 +287,8 @@
       </div>
       <div class="m3-card reports-excel-card">
         <h2 class="card-title">📗 Exportar Excel organizado (.xlsx)</h2>
-        <p class="card-helper">Formato real de Excel: columnas separadas, fechas y temperaturas numéricas, filtros de equipo y fecha, encabezados fijos, «Resumen diario», «Resumen equipos», «Registros» y pestañas por mes. Sin fotografías: usa PDF para inspecciones.</p>
+        <div class="m3-field"><label for="exportMonth" class="m3-label">Mes del Excel</label><input type="month" id="exportMonth" class="m3-input" required /></div>
+        <p class="card-helper">Dos hojas: «Resumen Mensual» (filas por equipo, columnas por día, días sin lectura en blanco) y «Registro Detallado» (seis columnas independientes). Las observaciones se resaltan en amarillo.</p>
         <button type="button" id="btnExportExcel" class="m3-btn m3-btn-primary report-main-btn">Exportar Excel organizado</button>
       </div>
       <div class="m3-card reports-csv-card">
@@ -334,6 +335,10 @@
         <div class="m3-field">
           <label for="deviceLocationInput" class="m3-label">Ubicación / Sección (Opcional)</label>
           <input type="text" id="deviceLocationInput" class="m3-input" placeholder="Ej. Sala de ventas / Carnicería" />
+        </div>
+        <div class="m3-field">
+          <label for="deviceOrderInput" class="m3-label">Orden en Excel (opcional)</label>
+          <input type="number" id="deviceOrderInput" class="m3-input" min="1" max="999999" step="1" placeholder="Ej. 1, 2, 3..." />
         </div>
         <div class="m3-field"><label class="m3-label"><input id="deviceActiveInput" type="checkbox" checked /> Equipo activo</label></div>
         <div class="modal-footer">
@@ -383,6 +388,8 @@
 
   <script src="records-core.js"></script>
   <script src="report-core.js"></script>
+  <!-- ExcelJS 4.4.0 is embedded in APK at build time; no Internet required. -->
+  <script src="vendor/exceljs.min.js"></script>
   <script src="excel-core.js"></script>
   <script src="app.js"></script>
 </body>

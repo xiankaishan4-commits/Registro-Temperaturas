@@ -8,8 +8,8 @@ class SigningPipelineTest(unittest.TestCase):
     def test_app_version_and_package_are_stable(self):
         gradle=(ROOT/'app/build.gradle').read_text(encoding='utf-8')
         self.assertIn("applicationId 'com.shanfoodsgroup.temperaturas'",gradle)
-        self.assertIn('versionCode 6',gradle)
-        self.assertIn("versionName '1.3.1'",gradle)
+        self.assertIn('versionCode 7',gradle)
+        self.assertIn("versionName '1.4.0'",gradle)
         self.assertIn('signingConfig signingConfigs.release',gradle)
         self.assertIn("tasks.register('requirePermanentSigningKey')",gradle)
     def test_secrets_are_not_embedded_in_git(self):
