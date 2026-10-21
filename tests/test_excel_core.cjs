@@ -33,9 +33,11 @@ assert.deepEqual(X.prepare(rows,devices,{from:'2026-10-01',to:'2026-10-31',devic
 assert.equal(X.prepare(rows,devices,{month:'2026-10'}).months.length,1);
 (async()=>{
  const b=new ExcelJS.Workbook();
- const bytes=await X.build(rows,devices,{from:'2026-10-21',to:'2026-11-10'});
+ const bytes=await X.build(rows,devices,{from:'2026-10-21',to:'2026-11-10',company:'Alimentos García 食品'});
  assert.equal(Buffer.from(bytes).toString('ascii',0,2),'PK');
  await b.xlsx.load(Buffer.from(bytes));
+ assert.equal(b.creator,'Alimentos García 食品');
+ assert(b.getWorksheet('Resumen 2026-10').getCell('A1').value.includes('Alimentos García 食品'));
  assert.deepEqual(b.worksheets.map(x=>x.name),['Resumen 2026-10','Resumen 2026-11','Registro Detallado']);
  assert.equal(b.getWorksheet('Resumen 2026-10').getCell('B3').value,'21');
  assert.equal(b.getWorksheet('Resumen 2026-11').getCell('K3').value,'10');

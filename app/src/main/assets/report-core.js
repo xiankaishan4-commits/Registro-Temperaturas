@@ -38,7 +38,7 @@
     const meta = {
       format: 'SHANFOODSGROUP_PDF_REPORT_V1',
       title: 'REGISTRO DE TEMPERATURAS',
-      company: 'SHANFOODSGROUP S.L.',
+      company: typeof filter.company === 'string' && filter.company.trim() ? filter.company.trim().slice(0, 120) : 'Mi empresa',
       desde: filter.from || '', hasta: filter.to || '',
       equipoFiltro: filter.equipoNombre || 'Todos los equipos',
       generadoEn: new Date().toISOString(),

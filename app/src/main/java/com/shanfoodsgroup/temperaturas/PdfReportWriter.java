@@ -93,7 +93,13 @@ final class PdfReportWriter {
     private void drawHeader(Canvas c, JSONObject report, int count, int photos, int page) {
         paint.setColor(NAVY);
         c.drawRect(0, 0, WIDTH, 66, paint);
-        text(c, "SHANFOODSGROUP S.L.", 32, 27, 12, Color.WHITE, true);
+        String company = report.optString("company", "Mi empresa").replaceAll("[\\p{Cntrl}]", " ").trim();
+        if (company.isEmpty()) company = "Mi empresa";
+        if (company.length() > 120) company = company.substring(0, 120);
+        paint.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
+        paint.setTextSize(12);
+        float companySize = Math.min(12f, 12f * (WIDTH - 64) / Math.max(1f, paint.measureText(company)));
+        text(c, company, 32, 27, companySize, Color.WHITE, true);
         text(c, "REGISTRO DE TEMPERATURAS", 32, 47, 16, Color.WHITE, true);
         String from = report.optString("desde", ""), to = report.optString("hasta", "");
         String dates = (from.isEmpty() && to.isEmpty()) ? "Todos los días" :

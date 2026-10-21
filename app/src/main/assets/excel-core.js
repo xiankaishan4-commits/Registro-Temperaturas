@@ -68,16 +68,17 @@ function dateValue(iso){const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);return m?n
 function timeValue(h){const m=/^(\d{2}):(\d{2})$/.exec(h);return m&&+m[1]<24&&+m[2]<60?(+m[1]*60 + +m[2])/1440:null;}
 async function build(rows,devices,options={}){
  const ExcelJS=root.ExcelJS;if(!ExcelJS||!ExcelJS.Workbook)throw Error('ExcelJS no está disponible en el APK.');
- const model=prepare(rows,devices,options),book=new ExcelJS.Workbook();book.creator='SHANFOODSGROUP';book.subject='Registro de temperaturas';book.created=new Date();
+ const company=typeof options.company==='string'&&options.company.trim()?options.company.trim().slice(0,120):'Mi empresa';
+ const model=prepare(rows,devices,options),book=new ExcelJS.Workbook();book.creator=company;book.subject='Registro de temperaturas';book.created=new Date();
  model.months.forEach(item=>{
   const sheet=book.addWorksheet(model.months.length===1?'Resumen Mensual':'Resumen '+item.key,{
    views:[{state:'frozen',xSplit:1,ySplit:3,topLeftCell:'B4'}],pageSetup:{orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0}});
   const maxCol=item.dateColumns.length+1;
   sheet.mergeCells(1,1,1,maxCol);const title=sheet.getCell(1,1);
-  title.value='REGISTRO DE TEMPERATURAS · '+item.key;
+  title.value=safe(company+' · REGISTRO DE TEMPERATURAS · '+item.key);
   title.font={bold:true,size:16,color:{argb:'FFFFFFFF'}};
   title.fill={type:'pattern',pattern:'solid',fgColor:{argb:navy}};
-  title.alignment={vertical:'middle',indent:1};sheet.getRow(1).height=34;
+  title.alignment={vertical:'middle',wrapText:true,shrinkToFit:true};sheet.getRow(1).height=60;
   sheet.mergeCells(2,1,2,maxCol);
   const count=item.matrix.reduce((sum,r)=>sum+r.cells.reduce((n,c)=>n+c.count,0),0);
   sheet.getCell(2,1).value=model.from+' → '+model.to+' · '+model.equipments.length+' equipos · '+count+' mediciones · Vacío = sin lectura';

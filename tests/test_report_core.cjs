@@ -6,6 +6,8 @@ const code = fs.readFileSync(path.join(__dirname, '../app/src/main/assets/report
 const ctx = { atob: x => Buffer.from(x, 'base64').toString('binary') };
 vm.createContext(ctx); vm.runInContext(code, ctx);
 const R = ctx.RTReports;
+assert.equal(JSON.parse(R.packageReport([{id:'empty'}])[0].data).company,'Mi empresa');
+assert.equal(JSON.parse(R.packageReport([{id:'empty'}],{company:'Alimentos García 食品'})[0].data).company,'Alimentos García 食品');
 const photo = 'data:image/jpeg;base64,' + Buffer.from([0xFF,0xD8,0xFF,0xD9]).toString('base64');
 const row = {id:'r1',equipo:'Mural 1 Carnes',fecha:'2026-10-21',hora:'09:12',temperatura:'2,5',responsable:'Ana',observaciones:'',foto:photo};
 const report = R.packageReport([row], {from:'2026-10-21',to:'2026-10-21',equipoNombre:'Mural 1 Carnes'});

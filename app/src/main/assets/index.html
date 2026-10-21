@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#005AC1" />
-  <title>SHANFOODSGROUP — Registro de Temperaturas</title>
+  <title>Registro de Temperaturas</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -14,7 +14,7 @@
     <div class="top-bar-brand">
       <div class="brand-icon" aria-hidden="true">❄️</div>
       <div class="brand-text">
-        <span class="brand-subtitle">SHANFOODSGROUP</span>
+        <span id="companyNameDisplay" class="brand-subtitle">Mi empresa</span>
         <h1 class="brand-title">Control de Temperaturas</h1>
       </div>
     </div>
@@ -233,6 +233,17 @@
 
     <!-- VISTA 4: EQUIPOS Y COPIA ZIP -->
     <section id="view-devices" class="view-section">
+      <div class="m3-card">
+        <h2 class="card-title">Empresa</h2>
+        <p id="companyNameHelp" class="card-helper">Se guarda en este teléfono y se incluye en las copias ZIP / JSON. Puedes cambiarlo cuando quieras.</p>
+        <form id="companySettingsForm">
+          <div class="m3-field">
+            <label for="companyNameInput" class="m3-label">Nombre de la empresa</label>
+            <input type="text" id="companyNameInput" class="m3-input" placeholder="Escribe el nombre de tu empresa" maxlength="120" required aria-describedby="companyNameHelp" />
+          </div>
+          <button type="submit" class="m3-btn m3-btn-primary">Guardar nombre</button>
+        </form>
+      </div>
       <div class="m3-card">
         <div class="card-header-flex">
           <div>

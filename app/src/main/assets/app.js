@@ -13,6 +13,31 @@
   let showOnlyAlertsHistory = false;
   let correctionTargetId = null;
   const RecordCore = window.RTRecords;
+  const COMPANY_KEY = 'rt_company_name_v1';
+  let companyName = '';
+
+  function validateCompanyName(value) {
+    if (typeof value !== 'string') throw new Error('Nombre de empresa no válido');
+    const name = value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+    if (!name || name.length > 120) throw new Error('Escribe un nombre de empresa de 1 a 120 caracteres.');
+    return name;
+  }
+
+  function displayCompanyName() { return companyName || 'Mi empresa'; }
+
+  function renderCompanyName() {
+    document.getElementById('companyNameDisplay').textContent = displayCompanyName();
+    document.getElementById('companyNameInput').value = companyName;
+    document.title = displayCompanyName() + ' — Registro de Temperaturas';
+  }
+
+  function saveCompanyName(value) {
+    const name = validateCompanyName(value);
+    // Update the UI only after persistent storage succeeds.
+    localStorage.setItem(COMPANY_KEY, name);
+    companyName = name;
+    renderCompanyName();
+  }
 
   const DEFAULT_DEVICES = [
     { id: 'eq-1', nombre: 'Cámara Refrigeración 1', tipo: 'REFRIGERACION', minTemp: 0, maxTemp: 4, ubicacion: 'Almacén' },
@@ -368,7 +393,7 @@
       if(!rows.length&&(!filter.from||!filter.to))return showSnackbar('Sin registros: selecciona Desde / Hasta.');
       const dates=rows.map(r=>r.fecha).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
       const from=filter.from||dates[0],to=filter.to||dates[dates.length-1];
-      const bytes=await RTExcel.build(rows,devicesCache,{from,to,deviceId:filter.deviceId});
+      const bytes=await RTExcel.build(rows,devicesCache,{from,to,deviceId:filter.deviceId,company:displayCompanyName()});
       const blob=new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
       await saveFile(blob,'Registro_Temperaturas_'+from+'_a_'+to+'.xlsx');
       showSnackbar('Excel creado: resúmenes mensuales y detalles de las fechas elegidas.');
@@ -419,7 +444,7 @@
         return showSnackbar('Para crear el informe PDF con fotografías usa la aplicación Android.');
       }
       const selectedDevice = devicesCache.find(d => String(d.id) === String(filter.deviceId));
-      const entries = RTReports.packageReport(rows, {...filter, equipoNombre:selectedDevice ? selectedDevice.nombre : 'Todos los equipos'});
+      const entries = RTReports.packageReport(rows, {...filter, company:displayCompanyName(), equipoNombre:selectedDevice ? selectedDevice.nombre : 'Todos los equipos'});
       const packageZip = createStoredZip(entries);
       // Archivo temporal privado para el motor PDF nativo. No se muestra ni se exporta al usuario.
       await nativeExport(packageZip, 'informe_interno.zip', 'pdfReport');
@@ -771,12 +796,12 @@
   // El formato SHANFOODSGROUP_M3 v2 y todos los datos y fotos se mantienen sin cambios.
   function backupData() {
     return {format: 'SHANFOODSGROUP_M3', version: 2, exportedAt: new Date().toISOString(),
-      equipos: devicesCache, registros: recordsCache};
+      settings: {companyName}, equipos: devicesCache, registros: recordsCache};
   }
   async function exportBackupJson() {
     try {
       const json = JSON.stringify(backupData());
-      await saveFile(new Blob([json], {type:'application/json'}), `SHANFOODSGROUP_Backup_${getTodayISO()}.json`);
+      await saveFile(new Blob([json], {type:'application/json'}), `Registro_Temperaturas_Backup_${getTodayISO()}.json`);
       showSnackbar('Copia técnica JSON guardada. No es el informe para entregar.');
     } catch(e) { showSnackbar('Error al guardar JSON: ' + e.message); }
   }
@@ -790,7 +815,7 @@
         { name: 'backup_datos.json', data: payload },
         { name: 'informe_temperaturas.csv', data: RecordCore.csv(RecordCore.exportRows(recordsCache,devicesCache)) }
       ]);
-      const fileName = `SHANFOODSGROUP_Backup_${getTodayISO()}.zip`;
+      const fileName = `Registro_Temperaturas_Backup_${getTodayISO()}.zip`;
       if (window.AndroidBridge) {
         await nativeExport(zipBlob, fileName, mode);
         statusEl.textContent = mode === 'share' ? 'Selecciona Drive u otra aplicación y comprueba que se ha subido.' :
@@ -816,7 +841,13 @@
       !Number.isFinite(Number(d.maxTemp ?? d.max))) throw new Error('Equipo inválido en copia');
     for (const r of rs) if (!r || !r.id || (r.registroTipo !== 'omitted' && !Number.isFinite(Number(r.temperatura ?? r.temp))) || !(r.equipoId || r.deviceId))
       throw new Error('Registro inválido en copia');
-    return {ds, rs};
+    // Optional metadata keeps v2 backups readable by previous versions. Empty
+    // names from an unconfigured app, and old backups, preserve the local name.
+    let restoredCompany;
+    if (data.settings && Object.prototype.hasOwnProperty.call(data.settings, 'companyName')) {
+      if (data.settings.companyName !== '') restoredCompany = validateCompanyName(data.settings.companyName);
+    }
+    return {ds, rs, restoredCompany};
   }
 
   async function importBackupFile(file) {
@@ -825,14 +856,14 @@
       if (file.size > 600 * 1024 * 1024) throw new Error('Archivo demasiado grande (máximo 600 MB).');
       const isJson = /\.json$/i.test(file.name);
       const files = isJson ? null : await extractStoredZip(await file.arrayBuffer());
-      let records, devices;
+      let records, devices, restoredCompany;
       if (isJson) {
-        ({ds: devices, rs: records} = assertBackupShape(JSON.parse(await file.text())));
+        ({ds: devices, rs: records, restoredCompany} = assertBackupShape(JSON.parse(await file.text())));
       } else if (files.has('backup_datos.json')) {
-        ({ds: devices, rs: records} = assertBackupShape(JSON.parse(new TextDecoder().decode(files.get('backup_datos.json')))));
+        ({ds: devices, rs: records, restoredCompany} = assertBackupShape(JSON.parse(new TextDecoder().decode(files.get('backup_datos.json')))));
       } else if (files.has('registro.json')) {
         const manifest = JSON.parse(new TextDecoder().decode(files.get('registro.json')));
-        ({ds: devices, rs: records} = assertBackupShape(manifest));
+        ({ds: devices, rs: records, restoredCompany} = assertBackupShape(manifest));
         records = await Promise.all(records.map(async row => {
           const photoBytes = files.get(`fotos/${row.id}.jpg`);
           if (!photoBytes) throw new Error('Foto ausente para el registro ' + row.id);
@@ -847,7 +878,9 @@
       const existingRecords = new Set((await dbGetAll(STORE_RECORDS)).map(r => String(r.id)));
       const newDs = [...newDevices.values()].filter(d => !existingDevices.has(d.id));
       const newRs = [...newRecords.values()].filter(r => !existingRecords.has(r.id));
-      if (!confirm(`Se añadirán ${newDs.length} equipos y ${newRs.length} registros NUEVOS. Los datos existentes NO se borrarán ni sobrescribirán. ¿Continuar?`)) return;
+      const companyNotice = restoredCompany === undefined ? '\nSe conservará el nombre de empresa actual.' :
+        `\nNombre de la empresa: «${restoredCompany}» (sustituirá al actual).`;
+      if (!confirm(`Se añadirán ${newDs.length} equipos y ${newRs.length} registros NUEVOS. Los datos existentes NO se borrarán ni sobrescribirán.${companyNotice} ¿Continuar?`)) return;
       if (newDs.length || newRs.length) await new Promise((resolve,reject) => {
         const tx = dbInstance.transaction([STORE_DEVICES,STORE_RECORDS], 'readwrite');
         for (const d of newDs) tx.objectStore(STORE_DEVICES).put(d);
@@ -856,6 +889,7 @@
         tx.onerror = () => reject(tx.error || new Error('Error de importación'));
         tx.onabort = () => reject(tx.error || new Error('Restauración interrumpida'));
       });
+      if (restoredCompany !== undefined) saveCompanyName(restoredCompany);
       await loadAllData(); renderAll();
       statusEl.textContent = `✅ Importación completada: ${newDs.length} equipos, ${newRs.length} registros nuevos; existentes conservados.`;
       showSnackbar('Copia importada; registros existentes conservados.');
@@ -863,6 +897,19 @@
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
+    renderCompanyName();
+    document.getElementById('companySettingsForm').addEventListener('submit', e => {
+      e.preventDefault();
+      try {
+        saveCompanyName(document.getElementById('companyNameInput').value);
+        showSnackbar('Nombre de la empresa guardado en este teléfono.');
+      } catch (error) { showSnackbar('No se pudo guardar: ' + error.message); }
+    });
+    try {
+      const saved = localStorage.getItem(COMPANY_KEY);
+      if (saved) companyName = validateCompanyName(saved);
+      renderCompanyName();
+    } catch (error) { showSnackbar('No se pudo leer el nombre de empresa: ' + error.message); }
     document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => switchView(b.dataset.target)));
     document.getElementById('recordDeviceSelect').addEventListener('change', updateSelectedDeviceRangeBanner);
     document.getElementById('recordEntryMode').addEventListener('change', () => { correctionTargetId=null; document.getElementById('recordDeviceSelect').disabled=false; toggleEntryMode(); });

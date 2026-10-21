@@ -50,6 +50,6 @@ class AssetsTest(unittest.TestCase):
         self.assertIn('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',java)
         self.assertIn('copias de seguridad',html.lower())
         gradle=(ROOT/'app/build.gradle').read_text(encoding='utf-8')
-        self.assertIn('versionCode 8',gradle)
+        self.assertIn('versionCode 9',gradle)
 
 if __name__=='__main__': unittest.main()
