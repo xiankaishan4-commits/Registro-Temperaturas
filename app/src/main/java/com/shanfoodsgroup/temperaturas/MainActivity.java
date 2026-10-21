@@ -177,7 +177,7 @@ public class MainActivity extends Activity {
                         success=true;
                     }catch(Exception ignored){}
                     final boolean done=success;
-                    main.post(()->toast(done?"Copia guardada. Comprueba el archivo en Drive o Archivos.":"Error al guardar la copia."));
+                    main.post(()->toast(done?"Archivo guardado. Comprueba el PDF, CSV o la copia en Archivos o Drive.":"Error al guardar el archivo."));
                     if(!input.delete())input.deleteOnExit();
                 }).start();
             }else{
