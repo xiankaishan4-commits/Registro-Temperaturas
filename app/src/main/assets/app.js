@@ -11,6 +11,8 @@
   let recordsCache = [];
   let currentCompressedPhoto = null;
   let showOnlyAlertsHistory = false;
+  let correctionTargetId = null;
+  const RecordCore = window.RTRecords;
 
   const DEFAULT_DEVICES = [
     { id: 'eq-1', nombre: 'Cámara Refrigeración 1', tipo: 'REFRIGERACION', minTemp: 0, maxTemp: 4, ubicacion: 'Almacén' },
@@ -192,7 +194,8 @@
   }
 
   function normalizeRecord(raw) {
-    const tempVal = Number(raw.temperatura !== undefined ? raw.temperatura : raw.temp);
+    const tempRaw = raw.temperatura !== undefined ? raw.temperatura : raw.temp;
+    const tempVal = raw.registroTipo === 'omitted' || tempRaw == null || tempRaw === '' ? null : Number(tempRaw);
     const ts = raw.timestamp || raw.fechaHora || Date.now();
     const dateStr = raw.fecha || raw.date || new Date(ts).toISOString().split('T')[0];
     return {
@@ -206,7 +209,12 @@
       foto: raw.foto || raw.photo || raw.imagen || null,
       responsable: raw.responsable || raw.operario || raw.person || '',
       observaciones: raw.observaciones || raw.notas || raw.notes || '',
-      fueraDeRango: raw.fueraDeRango !== undefined ? Boolean(raw.fueraDeRango) : Boolean(raw.outOfRange)
+      fueraDeRango: raw.fueraDeRango !== undefined ? Boolean(raw.fueraDeRango) : Boolean(raw.outOfRange),
+      registroTipo: raw.registroTipo || 'current',
+      recordedAt: Number(raw.recordedAt || raw.createdAt || raw.timestamp || Date.now()),
+      supersedesId: raw.supersedesId || null,
+      motivoCorreccion: raw.motivoCorreccion || '',
+      slotProgramado: raw.slotProgramado || null
     };
   }
 
@@ -252,44 +260,151 @@
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-
-  function reminderSlotStart(timestamp = Date.now()) {
-    const now = new Date(timestamp);
-    const night = now.getHours() >= 21 || now.getHours() < 9;
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), night ? 21 : 9);
-    if (now.getHours() < 9) start.setDate(start.getDate() - 1);
-    return { start: start.getTime(), label: night ? 'noche (21:00)' : 'mañana (09:00)' };
+  // Notification state contains IDs and timestamps only; photo data never leaves IndexedDB.
+  function getReminderSlot(now = Date.now()) {
+    const t = new Date(now);
+    let start = new Date(t.getFullYear(), t.getMonth(), t.getDate(), t.getHours() >= 21 ? 21 : 9);
+    if (t.getHours() < 9) start.setDate(start.getDate() - 1), start.setHours(21);
+    return { start: start.getTime(), label: start.getHours() === 9 ? 'mañana (09:00)' : 'noche (21:00)' };
   }
 
-  // Copy only device IDs and time stamps into the Android notification scheduler.
-  // IndexedDB remains authoritative. Photos and temperatures never enter notifications.
-  function syncReminderSnapshot() {
+  function syncAndroidReminders() {
     if (!window.ReminderBridge || typeof window.ReminderBridge.sync !== 'function') return;
-    const cutoff = Date.now() - 48 * 60 * 60 * 1000;
-    const payload = {
-      devices: devicesCache.filter(d => d.activo !== false).map(d => ({id: d.id, name: d.nombre})),
-      entries: recordsCache.filter(r => Number.isFinite(r.timestamp) && r.timestamp >= cutoff)
-        .map(r => ({ deviceId: r.equipoId, timestamp: r.timestamp }))
-    };
-    try { window.ReminderBridge.sync(JSON.stringify(payload)); }
-    catch (error) { console.error('Error sincronizando recordatorios', error); }
+    const devices = devicesCache.filter(d => d.activo !== false).map(d => ({ id: d.id, name: d.nombre }));
+    const cutoff = Date.now() - 48 * 3600000;
+    const entries = RecordCore.effective(recordsCache).filter(r => RecordCore.isMeasurement(r) && r.timestamp >= cutoff)
+      .map(r => ({ deviceId: r.equipoId, timestamp: r.timestamp }));
+    try { window.ReminderBridge.sync(JSON.stringify({ devices, entries })); }
+    catch (error) { console.error('No se pudo sincronizar las notificaciones', error); }
   }
 
+  // Declared date/time of actual measurement is distinct from the moment of input.
+  function dateTimeLocal(ts) {
+    const d = new Date(ts);
+    return `${RecordCore.dateISO(ts)}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  }
+  function toggleEntryMode() {
+    const mode = document.getElementById('recordEntryMode').value;
+    document.getElementById('priorMeasureFields').classList.toggle('hidden', mode !== 'late');
+    document.getElementById('omissionFields').classList.toggle('hidden', mode !== 'omitted');
+    document.getElementById('correctionFields').classList.toggle('hidden', mode !== 'correction');
+    document.getElementById('measurementFields').classList.toggle('hidden', mode === 'omitted');
+    document.getElementById('recordPhotoSection').classList.toggle('hidden', mode === 'omitted');
+    const save = document.getElementById('btnSaveRecord');
+    save.textContent = mode === 'omitted' ? 'GUARDAR CONTROL SIN MEDICIÓN' : mode === 'correction' ? 'GUARDAR CORRECCIÓN' : 'GUARDAR REGISTRO DE TEMPERATURA';
+    validateLiveTemperatureInput();
+  }
+  function resetEntryMode() {
+    correctionTargetId = null;
+    document.getElementById('recordEntryMode').value = 'current';
+    document.getElementById('recordDeviceSelect').disabled = false;
+    document.getElementById('priorMeasureAt').value = dateTimeLocal(Date.now());
+    document.getElementById('omittedDate').value = getTodayISO();
+    document.getElementById('correctionReason').value = '';
+    toggleEntryMode();
+  }
+  function startCorrection(id) {
+    const rec = recordsCache.find(r=>r.id === id);
+    if (!rec || !RecordCore.isMeasurement(rec)) return;
+    correctionTargetId = rec.id;
+    switchView('view-record');
+    document.getElementById('recordEntryMode').value = 'correction';
+    document.getElementById('recordDeviceSelect').value = rec.equipoId;
+    document.getElementById('recordDeviceSelect').disabled = true;
+    document.getElementById('recordTempInput').value = rec.temperatura;
+    document.getElementById('recordEmployeeInput').value = rec.responsable || '';
+    document.getElementById('recordNotesInput').value = rec.observaciones || '';
+    document.getElementById('correctionDetails').textContent = `Registro original: ${formatDisplayDate(rec.fecha)} a las ${formatTime(rec.timestamp)}. Se conservará el original.`;
+    toggleEntryMode();
+  }
+  function missedSlots(days = 7) {
+    // Avoid retrospectively inventing missed controls before first app update.
+    const since = Number(localStorage.getItem('rt_monitoring_since_v2')) || Date.now();
+    const now = Date.now(), result = [];
+    const anchor = new Date(); anchor.setHours(0,0,0,0);
+    for (let offset = days-1; offset >= 0; offset--) {
+      const day = new Date(anchor.getTime()); day.setDate(day.getDate()-offset);
+      for (const hour of [9,21]) {
+        const start = new Date(day.getFullYear(),day.getMonth(),day.getDate(),hour).getTime();
+        if (start < since || now < start + 60*60*1000) continue;
+        const key = RecordCore.slotKey(start);
+        for (const dev of devicesCache.filter(d=>d.activo!==false)) {
+          if (Number(dev.createdAt || 0) > start) continue;
+          const declared = recordsCache.some(r => r.registroTipo === 'omitted' && String(r.equipoId) === String(dev.id) && r.slotProgramado === key);
+          if (!declared && !RecordCore.slotSatisfied(recordsCache,dev.id,key)) result.push({dev,key,start});
+        }
+      }
+    }
+    return result;
+  }
+  function renderMissedSlots() {
+    const list = document.getElementById('pastMissingList');
+    const entries = missedSlots().slice(-40);
+    document.getElementById('pastMissingCount').textContent = entries.length;
+    list.textContent = '';
+    if (!entries.length) { list.innerHTML = '<div class="empty-placeholder">No hay controles anteriores pendientes.</div>'; return; }
+    for (const item of entries) {
+      const row = document.createElement('div'); row.className = 'device-status-card';
+      row.innerHTML = `<div class="device-info-col"><strong>${escapeHtml(item.dev.nombre)}</strong><div class="device-meta-line">${formatDisplayDate(RecordCore.dateISO(item.start))} · ${item.key.endsWith('/09')?'09:00':'21:00'}</div></div>`;
+      const btn = document.createElement('button'); btn.type='button'; btn.className='m3-btn m3-btn-outline m3-btn-sm'; btn.textContent='Revisar';
+      btn.addEventListener('click', () => { switchView('view-record'); resetEntryMode(); document.getElementById('recordDeviceSelect').value=item.dev.id; document.getElementById('recordEntryMode').value='omitted'; document.getElementById('omittedDate').value=RecordCore.dateISO(item.start); document.getElementById('omittedSlot').value=item.key.endsWith('/09')?'09':'21'; toggleEntryMode(); });
+      row.appendChild(btn);list.appendChild(row);
+    }
+  }
+  function exportFilter() {
+    const from=document.getElementById('exportFromDate').value, to=document.getElementById('exportToDate').value;
+    if (from && to && from > to) throw new Error('La fecha inicial es posterior a la final');
+    return {deviceId:document.getElementById('exportDeviceFilter').value, from, to};
+  }
+  function reportRows() { return RecordCore.exportRows(recordsCache,devicesCache,exportFilter()); }
+  async function exportCSVReport() {
+    try {
+      const rows=reportRows();if(!rows.length) return showSnackbar('No hay registros en el periodo seleccionado');
+      const blob=new Blob([RecordCore.csv(rows)],{type:'text/csv;charset=utf-8'});
+      const name=`Registro_Temperaturas_${getTodayISO()}.csv`;
+      await saveFile(blob,name);
+      showSnackbar('Selecciona dónde guardar el CSV.');
+    } catch(e) {showSnackbar('Error CSV: '+e.message);}
+  }
+  async function exportPDFReport() {
+    try {
+      const rows=reportRows();if(!rows.length) return showSnackbar('No hay registros en el periodo seleccionado');
+      if(rows.length>5000) return showSnackbar('Selecciona un periodo menor (máximo 5000 registros).');
+      const report=JSON.stringify({title:'REGISTRO DE TEMPERATURAS', company:'SHANFOODSGROUP S.L.', rows:rows.map(({foto, ...r}) => r)});
+      if(!window.AndroidBridge || typeof window.AndroidBridge.exportPdf !== 'function') {
+        return showSnackbar('La exportación PDF requiere la App Android. Usa CSV en navegador.');
+      }
+      window.AndroidBridge.exportPdf(report);
+      showSnackbar('Selecciona dónde guardar el informe PDF.');
+    } catch(e){showSnackbar('Error PDF: '+e.message);}
+  }
+  function refreshExportDevices() {
+    const select=document.getElementById('exportDeviceFilter'), old=select.value;
+    select.innerHTML='<option value="ALL">Todos los equipos</option>';
+    for(const d of devicesCache) {const o=document.createElement('option');o.value=d.id;o.textContent=d.nombre;select.appendChild(o);}
+    if([...select.options].some(o=>o.value===old)) select.value=old;
+  }
+  async function saveFile(blob,name) {
+    if(window.AndroidBridge) await nativeExport(blob,name,'save');
+    else {const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),60000);}
+  }
   function renderAll() {
     document.getElementById('currentDateBadge').textContent = formatDisplayDate(getTodayISO());
     renderHomeView();
     renderRecordFormSelectors();
     renderHistoryView();
     renderManageDevicesView();
-    syncReminderSnapshot();
+    refreshExportDevices();
+    renderMissedSlots();
+    syncAndroidReminders();
   }
 
   function renderHomeView() {
     const today = getTodayISO();
-    const slot = reminderSlotStart();
-    const todayRecords = recordsCache.filter(r => r.timestamp >= slot.start && r.timestamp <= Date.now());
-    const slotTitle = document.getElementById('reminderSlotHeading');
-    if (slotTitle) slotTitle.textContent = 'Pendientes — turno de ' + slot.label;
+    const slot = getReminderSlot();
+    const todayRecords = RecordCore.effective(recordsCache).filter(r => RecordCore.isMeasurement(r) && r.timestamp >= slot.start && r.timestamp <= Date.now());
+    const heading = document.getElementById('reminderSlotHeading');
+    if (heading) heading.textContent = `Pendientes de revisar — turno de ${slot.label}`;
     const pendingContainer = document.getElementById('pendingDevicesList');
     const checkedContainer = document.getElementById('checkedDevicesList');
     pendingContainer.innerHTML = '';
@@ -410,9 +525,9 @@
     const listEl = document.getElementById('historyRecordsList');
     listEl.innerHTML = '';
 
-    const filtered = recordsCache.filter(rec => {
+    const filtered = RecordCore.effective(recordsCache).filter(rec => {
       const devObj = devicesCache.find(d => d.id === rec.equipoId || d.nombre === rec.equipoNombre);
-      const out = devObj ? isTempOutOfRange(devObj, rec.temperatura) : rec.fueraDeRango;
+      const out = RecordCore.isMeasurement(rec) && (devObj ? isTempOutOfRange(devObj, rec.temperatura) : rec.fueraDeRango);
       if (devFilter && devFilter !== 'ALL' && rec.equipoId !== devFilter) return false;
       if (dateFilter && rec.fecha !== dateFilter) return false;
       if (showOnlyAlertsHistory && !out) return false;
@@ -427,7 +542,7 @@
 
     filtered.forEach(rec => {
       const devObj = devicesCache.find(d => d.id === rec.equipoId || d.nombre === rec.equipoNombre);
-      const out = devObj ? isTempOutOfRange(devObj, rec.temperatura) : rec.fueraDeRango;
+      const out = RecordCore.isMeasurement(rec) && (devObj ? isTempOutOfRange(devObj, rec.temperatura) : rec.fueraDeRango);
       const devName = devObj ? devObj.nombre : (rec.equipoNombre || 'Equipo');
       const card = document.createElement('div');
       card.className = 'history-card' + (out ? ' history-alert' : '');
@@ -436,9 +551,9 @@
         <div class="history-body">
           <div class="history-top-row">
             <span class="history-device-name">${escapeHtml(devName)}</span>
-            <span class="temp-display-badge ${out ? 'temp-alert' : 'temp-ok'}">${Number(rec.temperatura).toFixed(1)} °C</span>
+            <span class="temp-display-badge ${out ? 'temp-alert' : 'temp-ok'}">${RecordCore.isMeasurement(rec) ? Number(rec.temperatura).toFixed(1) + ' °C' : '—'}</span>
           </div>
-          <div class="history-meta">📅 ${formatDisplayDate(rec.fecha)} • 🕒 ${formatTime(rec.timestamp)} ${rec.responsable ? '• 👤 ' + escapeHtml(rec.responsable) : ''}</div>
+          <div class="history-meta">📅 ${formatDisplayDate(rec.fecha)} • 🕒 ${RecordCore.isMeasurement(rec) ? formatTime(rec.timestamp) : 'Sin medición'} ${rec.responsable ? '• 👤 ' + escapeHtml(rec.responsable) : ''}</div>
           ${out ? '<div style="color:#ba1a1a;font-size:12px;font-weight:700;margin-top:4px;">⚠️ TEMPERATURA FUERA DE RANGO</div>' : ''}
           ${rec.observaciones ? `<div class="history-notes">📝 ${escapeHtml(rec.observaciones)}</div>` : ''}
 
@@ -450,6 +565,13 @@
         document.getElementById('photoViewerCaption').textContent = `${devName} (${Number(rec.temperatura).toFixed(1)}°C)`;
         document.getElementById('photoViewerModal').classList.remove('hidden');
       });
+      if (RecordCore.isMeasurement(rec)) {
+        const modify = document.createElement('button');
+        modify.className = 'm3-btn m3-btn-tonal m3-btn-sm';
+        modify.type = 'button'; modify.textContent = '✏️ Corregir';
+        modify.addEventListener('click', () => startCorrection(rec.id));
+        card.querySelector('.history-body').appendChild(modify);
+      }
       listEl.appendChild(card);
     });
   }
@@ -599,7 +721,10 @@
     try {
       const payload = JSON.stringify({ format: 'SHANFOODSGROUP_M3', version: 2, exportedAt: new Date().toISOString(),
         equipos: devicesCache, registros: recordsCache });
-      const zipBlob = createStoredZip([{ name: 'backup_datos.json', data: payload }]);
+      const zipBlob = createStoredZip([
+        { name: 'backup_datos.json', data: payload },
+        { name: 'informe_temperaturas.csv', data: RecordCore.csv(RecordCore.exportRows(recordsCache,devicesCache)) }
+      ]);
       const fileName = `SHANFOODSGROUP_Backup_${getTodayISO()}.zip`;
       if (window.AndroidBridge) {
         await nativeExport(zipBlob, fileName, mode);
@@ -624,7 +749,7 @@
     if (!Array.isArray(ds) || !Array.isArray(rs) || ds.length > 10000 || rs.length > 40000) throw new Error('Datos incompletos o límites de seguridad excedidos');
     for (const d of ds) if (!d || !d.id || !(d.nombre || d.name) || !Number.isFinite(Number(d.minTemp ?? d.min)) ||
       !Number.isFinite(Number(d.maxTemp ?? d.max))) throw new Error('Equipo inválido en copia');
-    for (const r of rs) if (!r || !r.id || !Number.isFinite(Number(r.temperatura ?? r.temp)) || !(r.equipoId || r.deviceId))
+    for (const r of rs) if (!r || !r.id || (r.registroTipo !== 'omitted' && !Number.isFinite(Number(r.temperatura ?? r.temp))) || !(r.equipoId || r.deviceId))
       throw new Error('Registro inválido en copia');
     return {ds, rs};
   }
@@ -672,6 +797,9 @@
   document.addEventListener('DOMContentLoaded', async () => {
     document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => switchView(b.dataset.target)));
     document.getElementById('recordDeviceSelect').addEventListener('change', updateSelectedDeviceRangeBanner);
+    document.getElementById('recordEntryMode').addEventListener('change', () => { correctionTargetId=null; document.getElementById('recordDeviceSelect').disabled=false; toggleEntryMode(); });
+    document.getElementById('btnExportCSV').addEventListener('click', exportCSVReport);
+    document.getElementById('btnExportPDF').addEventListener('click', exportPDFReport);
     const tempInput = document.getElementById('recordTempInput');
     tempInput.addEventListener('input', validateLiveTemperatureInput);
     document.getElementById('btnTempMinus').addEventListener('click', () => { tempInput.value = ((parseFloat(tempInput.value) || 0) - 0.5).toFixed(1); validateLiveTemperatureInput(); });
@@ -701,35 +829,58 @@
 
     document.getElementById('recordForm').addEventListener('submit', async e => {
       e.preventDefault();
-      const dev = getSelectedRecordDevice();
-      const tempVal = parseFloat(tempInput.value);
-      if (!dev || tempInput.value.trim() === '' || !Number.isFinite(tempVal) || tempVal < -100 || tempVal > 100) return showSnackbar('Introduce una temperatura válida');
-      if (!currentCompressedPhoto) return showSnackbar('Haz una foto del termómetro antes de guardar.');
-      const out = isTempOutOfRange(dev, tempVal);
-      if (out && !document.getElementById('recordNotesInput').value.trim()) return showSnackbar('Temperatura fuera de rango: escribe la medida correctora.');
-      await dbPut(STORE_RECORDS, {
-        id: 'rec-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
-        equipoId: dev.id,
-        equipoNombre: dev.nombre,
-        temperatura: tempVal,
-        fecha: getTodayISO(),
-        timestamp: Date.now(),
-        foto: currentCompressedPhoto,
-        responsable: document.getElementById('recordEmployeeInput').value.trim(),
-        observaciones: document.getElementById('recordNotesInput').value.trim(),
-        fueraDeRango: out
-      });
+      const mode=document.getElementById('recordEntryMode').value;
+      const dev=getSelectedRecordDevice();
+      if(!dev) return showSnackbar('Selecciona un equipo');
+      const now=Date.now();let measuredAt=now,base=null,reason='';
+      if(mode==='omitted') {
+        const date=document.getElementById('omittedDate').value;
+        const hour=document.getElementById('omittedSlot').value;
+        reason=document.getElementById('omittedReason').value.trim();
+        if(!date||!['09','21'].includes(hour)||!reason) return showSnackbar('Indica fecha, turno y motivo del control no realizado.');
+        const scheduled=new Date(date+'T'+hour+':00:00').getTime();
+        if(!Number.isFinite(scheduled)||scheduled>now) return showSnackbar('No se puede registrar un control futuro.');
+        const key=RecordCore.slotKey(scheduled);
+        if(RecordCore.slotSatisfied(recordsCache,dev.id,key)) return showSnackbar('Ya existe una medición para ese turno.');
+        if(recordsCache.some(r=>r.registroTipo==='omitted'&&r.equipoId===dev.id&&r.slotProgramado===key))return showSnackbar('Este turno ya está declarado como no realizado.');
+        await dbPut(STORE_RECORDS,{id:'omit-'+now+'-'+Math.random().toString(36).slice(2,8),equipoId:dev.id,equipoNombre:dev.nombre,temperatura:null,
+          fecha:date,timestamp:scheduled,recordedAt:now,foto:null,responsable:document.getElementById('recordEmployeeInput').value.trim(),observaciones:reason,
+          registroTipo:'omitted',slotProgramado:key,fueraDeRango:false});
+      } else {
+        const raw=tempInput.value.trim(), tempVal=Number(raw);
+        if(!raw||!Number.isFinite(tempVal)||tempVal< -100||tempVal>100) return showSnackbar('Introduce una temperatura válida');
+        if(mode==='late') {
+          measuredAt=new Date(document.getElementById('priorMeasureAt').value).getTime();
+          reason=document.getElementById('priorReason').value.trim();
+          if(!Number.isFinite(measuredAt)||measuredAt>now||measuredAt<now-366*86400000||!reason)
+            return showSnackbar('Indica la hora real de medición (máx. 1 año) y motivo del registro posterior.');
+          if(!document.getElementById('recordEmployeeInput').value.trim())return showSnackbar('Indica quién realizó la medición.');
+        } else if(mode==='correction') {
+          base=recordsCache.find(r=>r.id===correctionTargetId);
+          reason=document.getElementById('correctionReason').value.trim();
+          if(!base||!RecordCore.isMeasurement(base)||!reason)return showSnackbar('Selecciona el registro y explica la corrección.');
+          measuredAt=base.timestamp;
+        } else if(!currentCompressedPhoto) return showSnackbar('Haz una foto del termómetro antes de guardar.');
+        const out=isTempOutOfRange(dev,tempVal);
+        const notes=document.getElementById('recordNotesInput').value.trim();
+        if(out&&!notes)return showSnackbar('Temperatura fuera de rango: escribe la medida correctora.');
+        const record={id:'rec-'+now+'-'+Math.random().toString(36).slice(2,8),equipoId:dev.id,equipoNombre:dev.nombre,temperatura:tempVal,
+          fecha:RecordCore.dateISO(measuredAt),timestamp:measuredAt,recordedAt:now,
+          foto:currentCompressedPhoto||(base&&base.foto)||null,
+          fotoCapturadaEn:currentCompressedPhoto?now:(base&&base.fotoCapturadaEn)||null,
+          responsable:document.getElementById('recordEmployeeInput').value.trim(),observaciones:notes,fueraDeRango:out,
+          registroTipo:mode, motivoRegistro:mode==='late'?reason:'', motivoCorreccion:mode==='correction'?reason:'',
+          supersedesId:mode==='correction'?base.id:null};
+        await dbPut(STORE_RECORDS,record);
+      }
       await loadAllData();
-      tempInput.value = '';
-      document.getElementById('recordNotesInput').value = '';
-      currentCompressedPhoto = null;
-      photoInput.value = '';
+      tempInput.value='';document.getElementById('recordNotesInput').value='';
+      document.getElementById('priorReason').value='';document.getElementById('omittedReason').value='';
+      document.getElementById('recordEmployeeInput').value='';
+      currentCompressedPhoto=null;photoInput.value='';
       document.getElementById('photoPreviewState').classList.add('hidden');
       document.getElementById('photoEmptyState').classList.remove('hidden');
-      validateLiveTemperatureInput();
-      renderAll();
-      showSnackbar(out ? '⚠️ Guardado con ALERTA' : '✅ Registro guardado');
-      switchView('view-home');
+      resetEntryMode();renderAll();showSnackbar('Registro guardado sin borrar el historial');switchView('view-home');
     });
 
     document.getElementById('historyFilterDevice').addEventListener('change', renderHistoryView);
@@ -754,7 +905,8 @@
         minTemp: parseFloat(document.getElementById('deviceMinTempInput').value),
         maxTemp: parseFloat(document.getElementById('deviceMaxTempInput').value),
         ubicacion: document.getElementById('deviceLocationInput').value.trim(),
-        activo: document.getElementById('deviceActiveInput').checked
+        activo: document.getElementById('deviceActiveInput').checked,
+        createdAt: (devicesCache.find(d=>d.id===document.getElementById('deviceIdInput').value)||{}).createdAt||Date.now()
       });
       await loadAllData();
       renderAll();
@@ -771,6 +923,8 @@
       await initDatabase();
       await migrateLegacyData();
       await loadAllData();
+      if(!localStorage.getItem('rt_monitoring_since_v2')) localStorage.setItem('rt_monitoring_since_v2',String(Date.now()));
+      resetEntryMode();
     } catch (error) {
       showSnackbar('ERROR AL INICIAR: ' + error.message + '. Los datos antiguos no se han borrado.');
       console.error(error);

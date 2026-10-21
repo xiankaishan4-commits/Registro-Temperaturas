@@ -30,7 +30,7 @@
         <div class="summary-header">
           <div>
             <h2 class="summary-title">Estado del Día</h2>
-            <p class="summary-subtitle">Controles de mañana 09:00 y noche 21:00</p>
+            <p class="summary-subtitle">Controles del turno actual · 09:00 y 21:00</p>
           </div>
           <div id="dailyProgressBadge" class="progress-circle">0%</div>
         </div>
@@ -55,10 +55,14 @@
       </div>
 
       <div class="section-block">
+        <div class="section-title-row"><h3 class="section-heading">Controles anteriores sin realizar</h3><span id="pastMissingCount" class="m3-chip chip-warning">0</span></div>
+        <div id="pastMissingList" class="device-cards-grid"></div>
+      </div>
+      <div class="section-block">
         <div class="section-title-row">
           <h3 class="section-heading">
             <span class="status-dot dot-pending"></span>
-            <span id="reminderSlotHeading">Pendientes del turno actual</span>
+            <span id="reminderSlotHeading">Pendientes de revisar — turno actual</span>
           </h3>
           <span id="pendingCountChip" class="m3-chip chip-warning">0</span>
         </div>
@@ -86,6 +90,29 @@
         </div>
 
         <form id="recordForm" novalidate>
+          <div class="m3-field"><label for="recordEntryMode" class="m3-label">Tipo de registro</label>
+            <select id="recordEntryMode" class="m3-select">
+              <option value="current">Medición realizada ahora</option>
+              <option value="late">Medición realizada anteriormente</option>
+              <option value="omitted">No se realizó la medición</option>
+              <option value="correction" hidden>Corregir un registro anterior</option>
+            </select>
+          </div>
+          <div id="priorMeasureFields" class="m3-field hidden">
+            <label for="priorMeasureAt" class="m3-label">Fecha y hora reales de la medición *</label><input type="datetime-local" id="priorMeasureAt" class="m3-input" />
+            <label for="priorReason" class="m3-label">Motivo de anotación posterior *</label><input id="priorReason" class="m3-input" placeholder="Motivo" />
+            <p class="card-helper">No introduzcas una temperatura que no se midió realmente. Las fotografías actuales no se presentan como tomadas anteriormente.</p>
+          </div>
+          <div id="omissionFields" class="m3-field hidden">
+            <label for="omittedDate" class="m3-label">Fecha del control no realizado *</label><input type="date" id="omittedDate" class="m3-input" />
+            <label for="omittedSlot" class="m3-label">Turno previsto</label><select id="omittedSlot" class="m3-select"><option value="09">Mañana · 09:00</option><option value="21">Noche · 21:00</option></select>
+            <label for="omittedReason" class="m3-label">Motivo *</label><input id="omittedReason" class="m3-input" placeholder="Explica por qué no se revisó" />
+            <p class="card-helper">Quedará constancia de la revisión omitida. Si mides ahora, guarda además una medición actual.</p>
+          </div>
+          <div id="correctionFields" class="m3-field hidden">
+            <p id="correctionDetails" class="card-helper"></p>
+            <label for="correctionReason" class="m3-label">Motivo de la corrección *</label><input id="correctionReason" class="m3-input" placeholder="Describe el error original" />
+          </div>
           <div class="m3-field">
             <label for="recordDeviceSelect" class="m3-label">1. Equipo Frigorífico / Congelador *</label>
             <select id="recordDeviceSelect" class="m3-select" required></select>
@@ -94,6 +121,7 @@
             </div>
           </div>
 
+<div id="measurementFields">
           <div class="m3-field temp-highlight-box" id="tempInputContainer">
             <label for="recordTempInput" class="m3-label">2. Temperatura Actual (°C) *</label>
             <div class="temp-stepper-row">
@@ -123,8 +151,8 @@
             </div>
           </div>
 
-          <div class="m3-field">
-            <label class="m3-label">3. Fotografía del Visor / Termómetro *</label>
+          <div id="recordPhotoSection" class="m3-field">
+            <label class="m3-label">3. Fotografía del Visor / Termómetro</label>
             <input
               type="file"
               id="recordPhotoInput"
@@ -148,6 +176,7 @@
             </div>
           </div>
 
+</div><!-- /measurementFields -->
           <div class="m3-field-row">
             <div class="m3-field">
               <label for="recordEmployeeInput" class="m3-label">Operario / Responsable</label>
@@ -208,6 +237,14 @@
         <div id="manageDevicesList" class="manage-devices-list"></div>
       </div>
 
+      <div class="m3-card">
+        <h2 class="card-title">📊 Exportar informe de temperaturas</h2>
+        <p class="card-helper">El informe muestra el equipo, la fecha y la hora reales de medición. Las mediciones no realizadas quedan sin temperatura ni hora.</p>
+        <div class="m3-field"><label for="exportDeviceFilter" class="m3-label">Equipo</label><select class="m3-select" id="exportDeviceFilter"><option value="ALL">Todos los equipos</option></select></div>
+        <div class="m3-field-row"><div class="m3-field"><label for="exportFromDate" class="m3-label">Desde</label><input type="date" id="exportFromDate" class="m3-input" /></div>
+        <div class="m3-field"><label for="exportToDate" class="m3-label">Hasta</label><input type="date" id="exportToDate" class="m3-input" /></div></div>
+        <div class="backup-actions-grid"><button id="btnExportCSV" type="button" class="m3-btn m3-btn-tonal">Exportar Excel (CSV)</button><button id="btnExportPDF" type="button" class="m3-btn m3-btn-primary">Exportar PDF</button></div>
+      </div>
       <div class="m3-card backup-card">
         <div class="card-header-row">
           <h2 class="card-title">📦 Copia de Seguridad (ZIP)</h2>
@@ -301,6 +338,7 @@
     </button>
   </nav>
 
+  <script src="records-core.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

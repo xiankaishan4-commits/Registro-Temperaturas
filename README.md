@@ -42,3 +42,13 @@
 - `app/src/main/java` – Android 原生 WebView、拍照文件选择器、备份保存/分享桥接器
 - `app/src/main/AndroidManifest.xml` – Android 配置（没有 INTERNET 权限）
 - `app/build.gradle` – Android 构建配置
+
+## v1.2.0-dev — Informe y control no realizado
+- Se conservan los datos antiguos de IndexedDB, las fotografías y la copia `backup_datos.json`.
+- Las anotaciones fuera de plazo declaran la hora **real** de medición y guardan por separado `recordedAt`; no es lícito inventar lecturas históricas.
+- Las comprobaciones omitidas constan sin temperatura ni hora de medición. Una medición posterior se registra como una lectura nueva.
+- Las correcciones nunca sobreescriben ni borran el original; enlazan con `supersedesId`, y la copia ZIP guarda ambas versiones.
+- Exportaciones CSV/PDF: equipo, fecha real, hora real, temperatura, responsable. No se imprimen etiquetas internas de corrección/registro tardío en el informe, pero el fichero ZIP guarda la trazabilidad. El PDF no incluye fotos; estas se conservan dentro del ZIP.
+- Controles pendientes anteriores: se enumeran hasta los últimos siete días **a partir de la primera ejecución de esta versión**, sin asumir omisiones previas desconocidas.
+- El proyecto no modifica la firma de instalación: los APK debug compilados con claves diferentes **NO** se pueden instalar como actualización sobre una versión previa. Antes de cambiar de APK, exporte y verifique el ZIP de respaldo. Para actualizaciones fiables configure una clave de firma privada permanente fuera del repositorio público.
+- Este código y APK de prueba deben probarse en móvil real. No hay verificación de horario independiente del reloj del móvil ni auditoría a prueba de manipulaciones.

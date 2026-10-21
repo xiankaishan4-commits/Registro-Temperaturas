@@ -68,7 +68,7 @@ public class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(true);
         view.addJavascriptInterface(new BackupBridge(),"AndroidBridge");
-        view.addJavascriptInterface(new ReminderBridge(),"ReminderBridge");
+        view.addJavascriptInterface(new ReminderBridge(), "ReminderBridge");
         ReminderScheduler.scheduleNext(this);
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 311);
@@ -88,7 +88,7 @@ public class MainActivity extends Activity {
                 if(!path.startsWith("/assets/"))return errorResponse();
                 path=path.substring("/assets/".length());
                 // Assets are a fixed whitelist. Do not expose private Android app files.
-                if(!path.matches("(index\\.html|app\\.js|styles\\.css|icon-192\\.png|icon-512\\.png|manifest\\.webmanifest)"))return errorResponse();
+                if(!path.matches("(index\\.html|app\\.js|records-core\\.js|styles\\.css|icon-192\\.png|icon-512\\.png|manifest\\.webmanifest)"))return errorResponse();
                 String mime=path.endsWith(".html")?"text/html":path.endsWith(".js")?"application/javascript":path.endsWith(".css")?"text/css":path.endsWith(".png")?"image/png":"application/manifest+json";
                 try{
                     InputStream in=getAssets().open(path);
@@ -198,7 +198,7 @@ public class MainActivity extends Activity {
             // Our provider streams the ZIP directly to the selected app (e.g. Google Drive).
             Uri uri=new Uri.Builder().scheme("content").authority(AUTH).appendPath(name).build();
             Intent send=new Intent(Intent.ACTION_SEND);
-            send.setType(name.endsWith(".csv")?"text/csv":"application/zip");
+            send.setType(name.endsWith(".csv")?"text/csv":name.endsWith(".pdf")?"application/pdf":"application/zip");
             send.putExtra(Intent.EXTRA_STREAM,uri);
             send.setClipData(android.content.ClipData.newRawUri(name,uri));
             send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -206,23 +206,66 @@ public class MainActivity extends Activity {
         }else{
             Intent save=new Intent(Intent.ACTION_CREATE_DOCUMENT);
             save.addCategory(Intent.CATEGORY_OPENABLE);
-            save.setType(name.endsWith(".csv")?"text/csv":"application/zip");
+            save.setType(name.endsWith(".csv")?"text/csv":name.endsWith(".pdf")?"application/pdf":"application/zip");
             save.putExtra(Intent.EXTRA_TITLE,name);
             startActivityForResult(save,REQUEST_EXPORT);
         }
     }
 
     private class ReminderBridge {
-        @JavascriptInterface public void sync(String snapshotJson) {
-            ReminderScheduler.saveSnapshot(MainActivity.this, snapshotJson);
+        @JavascriptInterface public void sync(String stateJson) {
+            ReminderScheduler.saveSnapshot(MainActivity.this, stateJson);
         }
     }
 
     private class BackupBridge{
+        @JavascriptInterface public void exportPdf(String rawJson) {
+            if (rawJson == null || rawJson.length() > 2500000) throw new IllegalArgumentException("Informe demasiado grande");
+            try {
+                org.json.JSONObject report = new org.json.JSONObject(rawJson);
+                org.json.JSONArray rows = report.getJSONArray("rows");
+                if (rows.length() > 5000) throw new IllegalArgumentException("Demasiados registros");
+                File output = new File(getCacheDir(),"export_report_" + System.currentTimeMillis() + ".pdf");
+                android.graphics.pdf.PdfDocument document = new android.graphics.pdf.PdfDocument();
+                try {
+                    android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                    int pageNumber = 0, cursor = 0;
+                    do {
+                        android.graphics.pdf.PdfDocument.PageInfo info = new android.graphics.pdf.PdfDocument.PageInfo.Builder(595,842,++pageNumber).create();
+                        android.graphics.pdf.PdfDocument.Page page = document.startPage(info);
+                        android.graphics.Canvas canvas = page.getCanvas();
+                        paint.setColor(android.graphics.Color.rgb(20,39,55)); paint.setTextSize(15); paint.setFakeBoldText(true);
+                        canvas.drawText("SHANFOODSGROUP S.L. — REGISTRO DE TEMPERATURAS",30,42,paint);
+                        paint.setTextSize(10); paint.setFakeBoldText(false);
+                        canvas.drawText("Equipo                                      Fecha               Hora         °C         Responsable",30,82,paint);
+                        canvas.drawLine(30,88,565,88,paint);
+                        float y=105;
+                        while(cursor < rows.length() && y < 788) {
+                            org.json.JSONObject r=rows.getJSONObject(cursor++);
+                            paint.setTextSize(9);
+                            canvas.drawText(shorten(r.optString("equipo"),34),30,y,paint);
+                            canvas.drawText(shorten(r.optString("fecha"),11),260,y,paint);
+                            canvas.drawText(shorten(r.optString("hora"),6),341,y,paint);
+                            canvas.drawText(shorten(r.optString("temperatura"),7),395,y,paint);
+                            canvas.drawText(shorten(r.optString("responsable"),18),444,y,paint);
+                            y+=18;
+                        }
+                        paint.setTextSize(9);
+                        canvas.drawText("Página " + pageNumber + " · Informe generado a partir de los registros del dispositivo",30,818,paint);
+                        document.finishPage(page);
+                    } while(cursor < rows.length());
+                    try(FileOutputStream file = new FileOutputStream(output)) { document.writeTo(file); }
+                } finally { document.close(); }
+                main.post(() -> exportFile(output,"Registro_Temperaturas_"+System.currentTimeMillis()+".pdf","save"));
+            } catch(Exception e) { toast("No se ha podido generar el PDF: " + e.getMessage()); }
+        }
+        private String shorten(String text, int limit) {
+            return text.length() <= limit ? text : text.substring(0,limit-1) + "…";
+        }
         @JavascriptInterface public void begin(String filename){
             synchronized(backupLock){
                 closeStream();
-                if(filename==null||!filename.matches("[a-zA-Z0-9_.-]{1,120}")||(!filename.endsWith(".zip")&&!filename.endsWith(".csv")))throw new IllegalArgumentException("Nombre no válido");
+                if(filename==null||!filename.matches("[a-zA-Z0-9_.-]{1,120}")||(!filename.endsWith(".zip")&&!filename.endsWith(".csv")&&!filename.endsWith(".pdf")))throw new IllegalArgumentException("Nombre no válido");
                 try{
                     File dest=new File(getCacheDir(),"export_"+System.currentTimeMillis()+"_"+filename);
                     workingFile=dest;backupStream=new FileOutputStream(dest);
