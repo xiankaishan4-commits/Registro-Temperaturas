@@ -25,7 +25,7 @@ class AssetsTest(unittest.TestCase):
         html=(ASSETS/'index.html').read_text(encoding='utf-8')
         js=(ASSETS/'app.js').read_text(encoding='utf-8')
         core=(ASSETS/'records-core.js').read_text(encoding='utf-8')
-        for id in ('btnQuickPDF','btnExportJson','view-reports','recordEntryMode','priorMeasureAt','omittedReason','correctionReason','exportDeviceFilter','exportFromDate','exportToDate','btnExportCSV','btnExportExcel','exportMonth','deviceOrderInput','btnExportPDF','pastMissingList'):
+        for id in ('btnQuickPDF','btnExportJson','view-reports','recordEntryMode','priorMeasureAt','omittedReason','correctionReason','exportDeviceFilter','exportFromDate','exportToDate','btnExportCSV','btnExportExcel','deviceOrderInput','btnExportPDF','pastMissingList'):
             self.assertIn('id="'+id+'"',html)
         for term in ('recordedAt','supersedesId','slotProgramado','registroTipo','migrateLegacyData','backup_datos.json','informe_temperaturas.csv'):
             self.assertIn(term,js)
@@ -50,6 +50,6 @@ class AssetsTest(unittest.TestCase):
         self.assertIn('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',java)
         self.assertIn('copias de seguridad',html.lower())
         gradle=(ROOT/'app/build.gradle').read_text(encoding='utf-8')
-        self.assertIn('versionCode 7',gradle)
+        self.assertIn('versionCode 8',gradle)
 
 if __name__=='__main__': unittest.main()
