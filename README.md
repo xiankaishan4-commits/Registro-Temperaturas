@@ -81,3 +81,7 @@ El informe no inventa horas ni temperaturas para controles omitidos. El Excel no
 ## ExcelJS exportación mensual v1.4.0
 
 El APK lleva ExcelJS 4.4.0 integrado sin dependencia de red. El archivo Excel .xlsx contiene exactamente dos hojas: **Resumen Mensual** (equipos personalizados como filas, días del mes como columnas, lecturas múltiples en la misma celda, observaciones amarillas y ausencia de lectura en blanco) y **Registro Detallado** (6 columnas tipadas, filtros, cabecera fija y fecha/equipo/hora ascendentes). Se puede escoger mes y equipo; el orden de los equipos es natural (1, 2, 10) o el campo opcional Orden. PDF, CSV y copia ZIP/JSON mantienen su formato y operación. No se modifican IndexedDB ni fotos.
+
+## Excel por fechas (v1.4.1)
+
+La exportación `.xlsx` utiliza ahora **Desde / Hasta** y **Equipo** como PDF y CSV. Es posible escoger días sueltos, semanas y rangos entre meses o años (hasta 36 meses por archivo). Si el rango está dentro de un solo mes, el libro contiene **Resumen Mensual** y **Registro Detallado**. Para un rango de varios meses se genera **Resumen AAAA-MM** para cada mes más un único **Registro Detallado** para todo el intervalo. Las columnas incluyen solo los días del rango elegido; las filas de equipos siempre provienen de IndexedDB y su orden personalizable. «Todo» deduce el rango de las mediciones existentes. Sin cambios de almacenamiento, fotografías, PDF ni copias ZIP/JSON.
