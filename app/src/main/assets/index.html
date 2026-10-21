@@ -278,7 +278,7 @@
           <button type="button" class="m3-btn m3-btn-outline m3-btn-sm" data-export-preset="previous">Mes anterior</button>
           <button type="button" class="m3-btn m3-btn-outline m3-btn-sm" data-export-preset="all">Todo</button>
         </div>
-        <p class="card-helper">Desde/Hasta se usa para PDF y CSV; el Excel utiliza el mes elegido debajo.</p>
+        <p class="card-helper">Desde / Hasta se aplica a PDF, Excel y CSV. Elige cualquier fecha o un intervalo de varios meses.</p>
       </div>
       <div class="m3-card reports-pdf-card">
         <h2 class="card-title">📄 Exportar informe PDF</h2>
@@ -287,8 +287,7 @@
       </div>
       <div class="m3-card reports-excel-card">
         <h2 class="card-title">📗 Exportar Excel organizado (.xlsx)</h2>
-        <div class="m3-field"><label for="exportMonth" class="m3-label">Mes del Excel</label><input type="month" id="exportMonth" class="m3-input" required /></div>
-        <p class="card-helper">Dos hojas: «Resumen Mensual» (filas por equipo, columnas por día, días sin lectura en blanco) y «Registro Detallado» (seis columnas independientes). Las observaciones se resaltan en amarillo.</p>
+        <p class="card-helper">Selecciona «Desde / Hasta» arriba. Un solo mes: «Resumen Mensual» y «Registro Detallado». Varios meses: un resumen por mes y una hoja detallada para todas las fechas (máximo 36 meses). Días sin medición quedan vacíos y las observaciones se resaltan en amarillo.</p>
         <button type="button" id="btnExportExcel" class="m3-btn m3-btn-primary report-main-btn">Exportar Excel organizado</button>
       </div>
       <div class="m3-card reports-csv-card">
