@@ -121,7 +121,7 @@
             <label for="correctionReason" class="m3-label">Motivo de la corrección *</label><input id="correctionReason" class="m3-input" placeholder="Describe el error original" />
           </div>
           <div class="m3-field">
-            <label for="recordDeviceSelect" class="m3-label">1. Equipo Frigorífico / Congelador *</label>
+            <label for="recordDeviceSelect" class="m3-label">1. Equipo / Punto de control *</label>
             <select id="recordDeviceSelect" class="m3-select" required></select>
             <div id="selectedDeviceRangeInfo" class="range-info-banner">
               Rango permitido: -- °C a -- °C
@@ -136,10 +136,9 @@
               <button type="button" class="stepper-btn sign-btn" id="btnToggleSign" aria-label="Cambiar signo">±</button>
               <div class="temp-input-wrapper">
                 <input
-                  type="number"
+                  type="text"
                   id="recordTempInput"
                   class="temp-giant-input"
-                  step="0.1"
                   inputmode="decimal"
                   placeholder="0.0"
                   required
@@ -159,7 +158,8 @@
           </div>
 
           <div id="recordPhotoSection" class="m3-field">
-            <label class="m3-label">3. Fotografía del Visor / Termómetro</label>
+            <label class="m3-label">3. Fotografía del Visor / Termómetro *</label>
+            <p class="card-helper">En mediciones anteriores, adjunta la foto correspondiente a esa medición. Cada registro se añade al historial, aunque ya exista otro del mismo día.</p>
             <input
               type="file"
               id="recordPhotoInput"
@@ -186,11 +186,11 @@
 </div><!-- /measurementFields -->
           <div class="m3-field-row">
             <div class="m3-field">
-              <label for="recordEmployeeInput" class="m3-label">Operario / Responsable</label>
-              <input type="text" id="recordEmployeeInput" class="m3-input" placeholder="Nombre o iniciales" />
+              <label for="recordEmployeeInput" class="m3-label">Operario / Responsable *</label>
+              <input type="text" id="recordEmployeeInput" class="m3-input" placeholder="Nombre o iniciales" required />
             </div>
             <div class="m3-field">
-              <label for="recordNotesInput" class="m3-label">Observaciones / Acción Correctiva</label>
+              <label for="recordNotesInput" id="recordNotesLabel" class="m3-label">Observaciones / Acción correctiva</label>
               <input type="text" id="recordNotesInput" class="m3-input" placeholder="Ej. Desescarche, carga de género..." />
             </div>
           </div>
@@ -247,8 +247,8 @@
       <div class="m3-card">
         <div class="card-header-flex">
           <div>
-            <h2 class="card-title">Equipos Frigoríficos</h2>
-            <p class="card-helper">Añade, modifica o elimina cámaras, murales y congeladores.</p>
+            <h2 class="card-title">Equipos y puntos de control</h2>
+            <p class="card-helper">Configura la categoría y los límites propios de cada equipo o punto de control.</p>
           </div>
           <button type="button" id="btnOpenAddDevice" class="m3-btn m3-btn-primary">➕ Nuevo Equipo</button>
         </div>
@@ -325,21 +325,24 @@
           <input type="text" id="deviceNameInput" class="m3-input" placeholder="Ej. Cámara Refrigeración 1" required />
         </div>
         <div class="m3-field">
-          <label for="deviceTypeSelect" class="m3-label">Tipo de Frío *</label>
+          <label for="deviceTypeSelect" class="m3-label">Categoría de temperatura *</label>
           <select id="deviceTypeSelect" class="m3-select">
-            <option value="REFRIGERACION">🧊 Refrigeración (0°C a 5°C)</option>
-            <option value="CONGELACION">❄️ Congelación (-24°C a -18°C)</option>
-            <option value="PERSONALIZADO">⚙️ Rango Personalizado</option>
+            <option value="REFRIGERACION">🧊 Refrigeración</option>
+            <option value="CONGELACION">❄️ Congelación</option>
+            <option value="AMBIENTE">🌡️ Ambiente</option>
+            <option value="ALIMENTOS_CALIENTES">♨️ Alimentos calientes</option>
+            <option value="PERSONALIZADO">⚙️ Personalizado</option>
           </select>
+          <p class="card-helper">La categoría no cambia los límites. Introduce el rango permitido para este equipo; se guarda de forma independiente.</p>
         </div>
         <div class="m3-field-row">
           <div class="m3-field">
             <label for="deviceMinTempInput" class="m3-label">Temp. Mínima (°C) *</label>
-            <input type="number" step="0.5" id="deviceMinTempInput" class="m3-input" value="0" required />
+            <input type="text" inputmode="decimal" id="deviceMinTempInput" class="m3-input" placeholder="Ej. −24,5" required />
           </div>
           <div class="m3-field">
             <label for="deviceMaxTempInput" class="m3-label">Temp. Máxima (°C) *</label>
-            <input type="number" step="0.5" id="deviceMaxTempInput" class="m3-input" value="5" required />
+            <input type="text" inputmode="decimal" id="deviceMaxTempInput" class="m3-input" placeholder="Ej. −18" required />
           </div>
         </div>
         <div class="m3-field">

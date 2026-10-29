@@ -20,7 +20,7 @@
 每次发布仍应在真实设备上确认拍照、保存、备份、恢复功能。
 
 ## 操作
-- 首次打开：设备 → 添加冷柜/冰柜及允许范围。
+- 首次打开：Equipos → 填写公司名称，添加设备或温度检查点及各自允许范围。
 - 每天：记录 → 选择设备 → 输入温度、记录人、拍照。
 - 数据全部保存在**手机的 Android WebView IndexedDB** 中；无需网络。
 - 备份：Copias → Descargar copia ZIP；Android 弹出系统保存位置选择框，可选择本机或 Google Drive 文档提供程序。
@@ -85,3 +85,12 @@ El APK lleva ExcelJS 4.4.0 integrado sin dependencia de red. El archivo Excel .x
 ## Excel por fechas (v1.4.1)
 
 La exportación `.xlsx` utiliza ahora **Desde / Hasta** y **Equipo** como PDF y CSV. Es posible escoger días sueltos, semanas y rangos entre meses o años (hasta 36 meses por archivo). Si el rango está dentro de un solo mes, el libro contiene **Resumen Mensual** y **Registro Detallado**. Para un rango de varios meses se genera **Resumen AAAA-MM** para cada mes más un único **Registro Detallado** para todo el intervalo. Las columnas incluyen solo los días del rango elegido; las filas de equipos siempre provienen de IndexedDB y su orden personalizable. «Todo» deduce el rango de las mediciones existentes. Sin cambios de almacenamiento, fotografías, PDF ni copias ZIP/JSON.
+
+## Categorías y límites independientes (v1.6.0)
+
+- Categorías: **Refrigeración, Congelación, Ambiente, Alimentos calientes y Personalizado**. Cambiar la categoría nunca modifica el mínimo ni el máximo. Los equipos nuevos requieren límites explícitos; se admiten decimales con coma o punto y signo positivo/negativo.
+- Cada medición requiere responsable y fotografía (también las anotaciones posteriores). Una corrección puede conservar la fotografía original. Los controles declarados «sin medición» siguen sin temperatura ni foto inventadas.
+- Las mediciones fuera de rango muestran una alerta roja; se guardan si se rellena **Acción correctiva**. Las mediciones sucesivas se añaden con IDs distintos: AHT 01 a las 09:00 con −19,2 °C y a las 21:00 con −17,5 °C conservan ambas entradas.
+- Las nuevas mediciones guardan `minTemp`, `maxTemp` y `equipoTipo` como campos adicionales. El historial y los informes usan los límites guardados de esa medición; una corrección usa los límites originales. Cambiar el equipo después no reinterpreta la alerta histórica. Para registros antiguos sin límites guardados, se conserva `fueraDeRango` si existe; si no, el historial utiliza el rango del equipo disponible. No se pueden reconstruir límites históricos que nunca se guardaron.
+- Se mantienen nombre de empresa, paquete Android, origen WebView, bases IndexedDB, IDs existentes y formato de copia v2. La restauración sigue siendo aditiva: un ID existente conserva sus datos locales y su configuración. Una copia antigua sin empresa conserva el nombre actual. Los registros antiguos sin foto o responsable se importan sin inventar datos; los requisitos nuevos se aplican al guardar nuevas mediciones.
+- `versionCode 10`, firma permanente existente. Ver [TESTING_TEMPERATURES.md](TESTING_TEMPERATURES.md) para las pruebas automatizadas y comprobaciones en móvil pendientes.

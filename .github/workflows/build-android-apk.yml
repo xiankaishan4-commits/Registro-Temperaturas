@@ -64,6 +64,14 @@ jobs:
       - name: Validar estructura y compatibilidad
         run: python3 -m unittest discover -s tests -v
 
+      - name: Probar formularios, historial y restauración ZIP en Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/rt-browser" --no-save --no-package-lock playwright@1.56.1
+          "$RUNNER_TEMP/rt-browser/node_modules/.bin/playwright" install --with-deps chromium
+          NODE_PATH="$RUNNER_TEMP/rt-browser/node_modules" node tests/test_temperature_app.cjs
+
       # All secret values are available only within the runner, never committed.
       - name: Validar GitHub Secrets de firma
         shell: bash
@@ -116,13 +124,13 @@ jobs:
             exit 1
           fi
           echo "APK signature verified: $ACTUAL"
-          cp "$APK" "$RUNNER_TEMP/Registro_Temperaturas_v1.5.0_Firmado.apk"
+          cp "$APK" "$RUNNER_TEMP/Registro_Temperaturas_v1.6.0_Firmado.apk"
 
       - name: Publicar solo APK firmado
         uses: actions/upload-artifact@v4
         with:
-          name: Registro_Temperaturas_APK_Firmado_v1.5.0
-          path: ${{ runner.temp }}/Registro_Temperaturas_v1.5.0_Firmado.apk
+          name: Registro_Temperaturas_APK_Firmado_v1.6.0
+          path: ${{ runner.temp }}/Registro_Temperaturas_v1.6.0_Firmado.apk
           if-no-files-found: error
           retention-days: 30
 

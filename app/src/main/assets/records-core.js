@@ -1,5 +1,26 @@
 (function (root) {
   'use strict';
+  function parseTemperature(value) {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+    if (typeof value !== 'string') return NaN;
+    const text = value.trim().replace(/\u2212/g, '-').replace(',', '.');
+    return /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text) && Number.isFinite(Number(text)) ? Number(text) : NaN;
+  }
+  function hasRecordRange(rec) {
+    return Number.isFinite(rec.minTemp) && Number.isFinite(rec.maxTemp) && rec.minTemp <= rec.maxTemp;
+  }
+  function recordRange(rec, device) {
+    if (hasRecordRange(rec)) {
+      return {minTemp: rec.minTemp, maxTemp: rec.maxTemp};
+    }
+    return device || {};
+  }
+  function isRecordOutOfRange(rec, device) {
+    if (!isMeasurement(rec)) return false;
+    if (!hasRecordRange(rec) && typeof rec.fueraDeRango === 'boolean') return rec.fueraDeRango;
+    const range = recordRange(rec, device);
+    return Number(rec.temperatura) < range.minTemp || Number(rec.temperatura) > range.maxTemp;
+  }
   // The stored schema remains backwards compatible with all previous ZIP backups.
   function isMeasurement(rec) {
     return rec && rec.registroTipo !== 'omitted' && rec.temperatura !== null &&
@@ -30,6 +51,7 @@
       return true;
     }).map(r => {
       const d = byId.get(String(r.equipoId));
+      const range = recordRange(r, d);
       const measured = isMeasurement(r);
       return {
         equipo: String((d && d.nombre) || r.equipoNombre || 'Equipo'),
@@ -38,8 +60,8 @@
         temperatura: measured ? Number(r.temperatura).toFixed(1).replace('.', ',') : '',
         responsable: String(r.responsable || ''),
         observaciones: measured ? String(r.observaciones || '') : 'Sin medición',
-        minTemp: d && Number.isFinite(Number(d.minTemp)) ? Number(d.minTemp) : null,
-        maxTemp: d && Number.isFinite(Number(d.maxTemp)) ? Number(d.maxTemp) : null,
+        minTemp: range.minTemp != null && Number.isFinite(Number(range.minTemp)) ? Number(range.minTemp) : null,
+        maxTemp: range.maxTemp != null && Number.isFinite(Number(range.maxTemp)) ? Number(range.maxTemp) : null,
         foto: measured ? (r.foto || null) : null,
         id: String(r.id || '')
       };
@@ -67,5 +89,5 @@
   function slotSatisfied(records, deviceId, targetKey) {
     return effective(records).some(r => String(r.equipoId) === String(deviceId) && isMeasurement(r) && slotKey(Number(r.timestamp)) === targetKey);
   }
-  root.RTRecords = { isMeasurement, effective, dateISO, timeHHMM, exportRows, csv, slotKey, slotSatisfied };
+  root.RTRecords = { parseTemperature, recordRange, isRecordOutOfRange, isMeasurement, effective, dateISO, timeHHMM, exportRows, csv, slotKey, slotSatisfied };
 })(typeof window !== 'undefined' ? window : globalThis);

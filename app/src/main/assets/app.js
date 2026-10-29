@@ -13,6 +13,9 @@
   let showOnlyAlertsHistory = false;
   let correctionTargetId = null;
   const RecordCore = window.RTRecords;
+  const DEVICE_TYPES = {REFRIGERACION: 'Refrigeración', CONGELACION: 'Congelación',
+    AMBIENTE: 'Ambiente', ALIMENTOS_CALIENTES: 'Alimentos calientes', PERSONALIZADO: 'Personalizado'};
+  let savingRecord = false;
   const COMPANY_KEY = 'rt_company_name_v1';
   let companyName = '';
 
@@ -183,9 +186,20 @@
 
   function dbPut(storeName, item) {
     return new Promise((resolve, reject) => {
-      const req = dbInstance.transaction(storeName, 'readwrite').objectStore(storeName).put(item);
-      req.onsuccess = () => resolve(item);
-      req.onerror = () => reject(req.error);
+      const tx = dbInstance.transaction(storeName, 'readwrite');
+      tx.objectStore(storeName).put(item);
+      tx.oncomplete = () => resolve(item);
+      tx.onabort = tx.onerror = () => reject(tx.error || new Error('No se pudo guardar'));
+    });
+  }
+
+  function dbAddRecord(item) {
+    return new Promise((resolve, reject) => {
+      const tx = dbInstance.transaction(STORE_RECORDS, 'readwrite');
+      // add rejects a duplicate ID instead of ever replacing history.
+      tx.objectStore(STORE_RECORDS).add(item);
+      tx.oncomplete = () => resolve(item);
+      tx.onabort = tx.onerror = () => reject(tx.error || new Error('No se pudo guardar el registro'));
     });
   }
 
@@ -235,7 +249,8 @@
       foto: raw.foto || raw.photo || raw.imagen || null,
       responsable: raw.responsable || raw.operario || raw.person || '',
       observaciones: raw.observaciones || raw.notas || raw.notes || '',
-      fueraDeRango: raw.fueraDeRango !== undefined ? Boolean(raw.fueraDeRango) : Boolean(raw.outOfRange),
+      fueraDeRango: raw.fueraDeRango !== undefined ? Boolean(raw.fueraDeRango) :
+        raw.outOfRange !== undefined ? Boolean(raw.outOfRange) : undefined,
       registroTipo: raw.registroTipo || 'current',
       recordedAt: Number(raw.recordedAt || raw.createdAt || raw.timestamp || Date.now()),
       supersedesId: raw.supersedesId || null,
@@ -318,7 +333,7 @@
     document.getElementById('recordPhotoSection').classList.toggle('hidden', mode === 'omitted');
     const save = document.getElementById('btnSaveRecord');
     save.textContent = mode === 'omitted' ? 'GUARDAR CONTROL SIN MEDICIÓN' : mode === 'correction' ? 'GUARDAR CORRECCIÓN' : 'GUARDAR REGISTRO DE TEMPERATURA';
-    validateLiveTemperatureInput();
+    updateSelectedDeviceRangeBanner();
   }
   function resetEntryMode() {
     correctionTargetId = null;
@@ -333,6 +348,10 @@
     const rec = recordsCache.find(r=>r.id === id);
     if (!rec || !RecordCore.isMeasurement(rec)) return;
     correctionTargetId = rec.id;
+    currentCompressedPhoto = null;
+    document.getElementById('recordPhotoInput').value = '';
+    document.getElementById('photoPreviewState').classList.add('hidden');
+    document.getElementById('photoEmptyState').classList.remove('hidden');
     switchView('view-record');
     document.getElementById('recordEntryMode').value = 'correction';
     document.getElementById('recordDeviceSelect').value = rec.equipoId;
@@ -508,7 +527,7 @@
       } else {
         checkedCount++;
         const latest = recs[0];
-        const out = isTempOutOfRange(device, latest.temperatura);
+        const out = RecordCore.isRecordOutOfRange(latest, device);
         if (out) alertsToday++;
         const card = document.createElement('div');
         card.className = 'device-status-card' + (out ? ' card-alert-border' : '');
@@ -564,33 +583,44 @@
 
   function getSelectedRecordDevice() {
     const id = document.getElementById('recordDeviceSelect').value;
-    return devicesCache.find(d => d.id === id) || devicesCache[0] || null;
+    return devicesCache.find(d => d.id === id) || null;
+  }
+
+  function getEntryRangeDevice() {
+    const dev = getSelectedRecordDevice();
+    const original = recordsCache.find(r => r.id === correctionTargetId);
+    return dev && original ? {...dev, ...RecordCore.recordRange(original, dev), tipo: original.equipoTipo || dev.tipo} : dev;
   }
 
   function updateSelectedDeviceRangeBanner() {
-    const dev = getSelectedRecordDevice();
+    const dev = getEntryRangeDevice();
     document.getElementById('selectedDeviceRangeInfo').textContent = dev
-      ? `Rango seguro permitido: de ${dev.minTemp} °C a ${dev.maxTemp} °C`
+      ? `${DEVICE_TYPES[dev.tipo] || dev.tipo} · Rango permitido: de ${dev.minTemp} °C a ${dev.maxTemp} °C`
       : 'No hay equipos configurados.';
     validateLiveTemperatureInput();
   }
 
   function validateLiveTemperatureInput() {
-    const dev = getSelectedRecordDevice();
+    const dev = getEntryRangeDevice();
     const rawVal = document.getElementById('recordTempInput').value;
     const container = document.getElementById('tempInputContainer');
     const banner = document.getElementById('tempWarningBanner');
-    if (!dev || rawVal === '' || isNaN(Number(rawVal))) {
+    const notes = document.getElementById('recordNotesInput');
+    const temp = RecordCore.parseTemperature(rawVal);
+    const out = document.getElementById('recordEntryMode').value !== 'omitted' && dev && Number.isFinite(temp) && isTempOutOfRange(dev, temp);
+    notes.required = Boolean(out);
+    notes.setAttribute('aria-required', String(Boolean(out)));
+    document.getElementById('recordNotesLabel').textContent = out ? 'Acción correctiva * (obligatoria fuera de rango)' : 'Observaciones / Acción correctiva';
+    if (!dev || !Number.isFinite(temp)) {
       container.classList.remove('is-out-of-range');
       banner.classList.add('hidden');
       return;
     }
-    const temp = parseFloat(rawVal);
-    if (isTempOutOfRange(dev, temp)) {
+    if (out) {
       container.classList.add('is-out-of-range');
       banner.classList.remove('hidden');
       document.getElementById('tempWarningText').textContent =
-        `Valor: ${temp.toFixed(1)}°C (Límite de ${dev.nombre}: ${dev.minTemp}°C a ${dev.maxTemp}°C).`;
+        `Valor: ${temp}°C (Límite de ${dev.nombre}: ${dev.minTemp}°C a ${dev.maxTemp}°C). Puedes guardarlo con una acción correctiva.`;
     } else {
       container.classList.remove('is-out-of-range');
       banner.classList.add('hidden');
@@ -605,7 +635,7 @@
 
     const filtered = RecordCore.effective(recordsCache).filter(rec => {
       const devObj = devicesCache.find(d => d.id === rec.equipoId || d.nombre === rec.equipoNombre);
-      const out = RecordCore.isMeasurement(rec) && (devObj ? isTempOutOfRange(devObj, rec.temperatura) : rec.fueraDeRango);
+      const out = RecordCore.isRecordOutOfRange(rec, devObj);
       if (devFilter && devFilter !== 'ALL' && rec.equipoId !== devFilter) return false;
       if (dateFilter && rec.fecha !== dateFilter) return false;
       if (showOnlyAlertsHistory && !out) return false;
@@ -620,7 +650,7 @@
 
     filtered.forEach(rec => {
       const devObj = devicesCache.find(d => d.id === rec.equipoId || d.nombre === rec.equipoNombre);
-      const out = RecordCore.isMeasurement(rec) && (devObj ? isTempOutOfRange(devObj, rec.temperatura) : rec.fueraDeRango);
+      const out = RecordCore.isRecordOutOfRange(rec, devObj);
       const devName = devObj ? devObj.nombre : (rec.equipoNombre || 'Equipo');
       const card = document.createElement('div');
       card.className = 'history-card' + (out ? ' history-alert' : '');
@@ -663,7 +693,7 @@
       row.innerHTML = `
         <div class="device-info-col">
           <div class="device-title-line"><span>${dev.minTemp < 0 ? '❄️' : '🧊'}</span><span>${escapeHtml(dev.nombre)}</span></div>
-          <div class="device-meta-line">Rango: <strong>${dev.minTemp}°C a ${dev.maxTemp}°C</strong> ${dev.activo === false ? '• INACTIVO' : ''} ${dev.ubicacion ? '• ' + escapeHtml(dev.ubicacion) : ''}</div>
+          <div class="device-meta-line">${escapeHtml(DEVICE_TYPES[dev.tipo] || dev.tipo)} · Rango: <strong>${dev.minTemp}°C a ${dev.maxTemp}°C</strong> ${dev.activo === false ? '• INACTIVO' : ''} ${dev.ubicacion ? '• ' + escapeHtml(dev.ubicacion) : ''}</div>
         </div>
         <div class="manage-actions">
           <button type="button" class="m3-btn m3-btn-tonal m3-btn-sm" data-edit>✏️</button>
@@ -691,6 +721,7 @@
   }
 
   function openRecordForDevice(deviceId) {
+    resetEntryMode();
     switchView('view-record');
     if (deviceId) {
       document.getElementById('recordDeviceSelect').value = deviceId;
@@ -702,9 +733,14 @@
     document.getElementById('deviceModalTitle').textContent = device ? 'Editar Equipo' : 'Añadir Equipo';
     document.getElementById('deviceIdInput').value = device ? device.id : '';
     document.getElementById('deviceNameInput').value = device ? device.nombre : '';
-    document.getElementById('deviceTypeSelect').value = device ? (device.tipo || 'PERSONALIZADO') : 'REFRIGERACION';
-    document.getElementById('deviceMinTempInput').value = device ? device.minTemp : 0;
-    document.getElementById('deviceMaxTempInput').value = device ? device.maxTemp : 4;
+    const types = document.getElementById('deviceTypeSelect');
+    if (device && device.tipo && !Array.from(types.options).some(o => o.value === device.tipo)) {
+      const option = document.createElement('option');
+      option.value = device.tipo; option.textContent = device.tipo; types.appendChild(option);
+    }
+    types.value = device ? (device.tipo || 'PERSONALIZADO') : 'REFRIGERACION';
+    document.getElementById('deviceMinTempInput').value = device ? device.minTemp : '';
+    document.getElementById('deviceMaxTempInput').value = device ? device.maxTemp : '';
     document.getElementById('deviceLocationInput').value = device ? (device.ubicacion || '') : '';
     document.getElementById('deviceOrderInput').value = device && device.orden != null ? device.orden : '';
     document.getElementById('deviceActiveInput').checked = !device || device.activo !== false;
@@ -921,11 +957,11 @@
     document.getElementById('btnQuickPDF').addEventListener('click', () => exportPDFReport({deviceId:'ALL', from:getTodayISO(), to:getTodayISO()}));
     const tempInput = document.getElementById('recordTempInput');
     tempInput.addEventListener('input', validateLiveTemperatureInput);
-    document.getElementById('btnTempMinus').addEventListener('click', () => { tempInput.value = ((parseFloat(tempInput.value) || 0) - 0.5).toFixed(1); validateLiveTemperatureInput(); });
-    document.getElementById('btnTempPlus').addEventListener('click', () => { tempInput.value = ((parseFloat(tempInput.value) || 0) + 0.5).toFixed(1); validateLiveTemperatureInput(); });
+    document.getElementById('btnTempMinus').addEventListener('click', () => { tempInput.value = ((RecordCore.parseTemperature(tempInput.value) || 0) - 0.5).toFixed(1); validateLiveTemperatureInput(); });
+    document.getElementById('btnTempPlus').addEventListener('click', () => { tempInput.value = ((RecordCore.parseTemperature(tempInput.value) || 0) + 0.5).toFixed(1); validateLiveTemperatureInput(); });
     document.getElementById('btnToggleSign').addEventListener('click', () => {
       if (!tempInput.value) { tempInput.value = '-'; return; }
-      const v = parseFloat(tempInput.value);
+      const v = RecordCore.parseTemperature(tempInput.value);
       if (!isNaN(v)) { tempInput.value = (-v).toFixed(1); validateLiveTemperatureInput(); }
     });
 
@@ -948,58 +984,68 @@
 
     document.getElementById('recordForm').addEventListener('submit', async e => {
       e.preventDefault();
-      const mode=document.getElementById('recordEntryMode').value;
-      const dev=getSelectedRecordDevice();
-      if(!dev) return showSnackbar('Selecciona un equipo');
-      const now=Date.now();let measuredAt=now,base=null,reason='';
-      if(mode==='omitted') {
-        const date=document.getElementById('omittedDate').value;
-        const hour=document.getElementById('omittedSlot').value;
-        reason=document.getElementById('omittedReason').value.trim();
-        if(!date||!['09','21'].includes(hour)||!reason) return showSnackbar('Indica fecha, turno y motivo del control no realizado.');
-        const scheduled=new Date(date+'T'+hour+':00:00').getTime();
-        if(!Number.isFinite(scheduled)||scheduled>now) return showSnackbar('No se puede registrar un control futuro.');
-        const key=RecordCore.slotKey(scheduled);
-        if(RecordCore.slotSatisfied(recordsCache,dev.id,key)) return showSnackbar('Ya existe una medición para ese turno.');
-        if(recordsCache.some(r=>r.registroTipo==='omitted'&&r.equipoId===dev.id&&r.slotProgramado===key))return showSnackbar('Este turno ya está declarado como no realizado.');
-        await dbPut(STORE_RECORDS,{id:'omit-'+now+'-'+Math.random().toString(36).slice(2,8),equipoId:dev.id,equipoNombre:dev.nombre,temperatura:null,
-          fecha:date,timestamp:scheduled,recordedAt:now,foto:null,responsable:document.getElementById('recordEmployeeInput').value.trim(),observaciones:reason,
-          registroTipo:'omitted',slotProgramado:key,fueraDeRango:false});
-      } else {
-        const raw=tempInput.value.trim(), tempVal=Number(raw);
-        if(!raw||!Number.isFinite(tempVal)||tempVal< -100||tempVal>100) return showSnackbar('Introduce una temperatura válida');
-        if(mode==='late') {
-          measuredAt=new Date(document.getElementById('priorMeasureAt').value).getTime();
-          reason=document.getElementById('priorReason').value.trim();
-          if(!Number.isFinite(measuredAt)||measuredAt>now||measuredAt<now-366*86400000||!reason)
-            return showSnackbar('Indica la hora real de medición (máx. 1 año) y motivo del registro posterior.');
-          if(!document.getElementById('recordEmployeeInput').value.trim())return showSnackbar('Indica quién realizó la medición.');
-        } else if(mode==='correction') {
-          base=recordsCache.find(r=>r.id===correctionTargetId);
-          reason=document.getElementById('correctionReason').value.trim();
-          if(!base||!RecordCore.isMeasurement(base)||!reason)return showSnackbar('Selecciona el registro y explica la corrección.');
-          measuredAt=base.timestamp;
-        } else if(!currentCompressedPhoto) return showSnackbar('Haz una foto del termómetro antes de guardar.');
-        const out=isTempOutOfRange(dev,tempVal);
-        const notes=document.getElementById('recordNotesInput').value.trim();
-        if(out&&!notes)return showSnackbar('Temperatura fuera de rango: escribe la medida correctora.');
-        const record={id:'rec-'+now+'-'+Math.random().toString(36).slice(2,8),equipoId:dev.id,equipoNombre:dev.nombre,temperatura:tempVal,
-          fecha:RecordCore.dateISO(measuredAt),timestamp:measuredAt,recordedAt:now,
-          foto:currentCompressedPhoto||(base&&base.foto)||null,
-          fotoCapturadaEn:currentCompressedPhoto?now:(base&&base.fotoCapturadaEn)||null,
-          responsable:document.getElementById('recordEmployeeInput').value.trim(),observaciones:notes,fueraDeRango:out,
-          registroTipo:mode, motivoRegistro:mode==='late'?reason:'', motivoCorreccion:mode==='correction'?reason:'',
-          supersedesId:mode==='correction'?base.id:null};
-        await dbPut(STORE_RECORDS,record);
-      }
-      await loadAllData();
-      tempInput.value='';document.getElementById('recordNotesInput').value='';
-      document.getElementById('priorReason').value='';document.getElementById('omittedReason').value='';
-      document.getElementById('recordEmployeeInput').value='';
-      currentCompressedPhoto=null;photoInput.value='';
-      document.getElementById('photoPreviewState').classList.add('hidden');
-      document.getElementById('photoEmptyState').classList.remove('hidden');
-      resetEntryMode();renderAll();showSnackbar('Registro guardado sin borrar el historial');switchView('view-home');
+      if (savingRecord) return;
+      savingRecord = true;
+      document.getElementById('btnSaveRecord').disabled = true;
+      try {
+        const mode=document.getElementById('recordEntryMode').value;
+        const dev=getSelectedRecordDevice();
+        if(!dev) return showSnackbar('Selecciona un equipo');
+        const employee=document.getElementById('recordEmployeeInput').value.trim();
+        if(!employee) return showSnackbar('Indica quién realizó la medición o anotación.');
+        const now=Date.now();let measuredAt=now,base=null,reason='';
+        if(mode==='omitted') {
+          const date=document.getElementById('omittedDate').value;
+          const hour=document.getElementById('omittedSlot').value;
+          reason=document.getElementById('omittedReason').value.trim();
+          if(!date||!['09','21'].includes(hour)||!reason) return showSnackbar('Indica fecha, turno y motivo del control no realizado.');
+          const scheduled=new Date(date+'T'+hour+':00:00').getTime();
+          if(!Number.isFinite(scheduled)||scheduled>now) return showSnackbar('No se puede registrar un control futuro.');
+          const key=RecordCore.slotKey(scheduled);
+          if(RecordCore.slotSatisfied(recordsCache,dev.id,key)) return showSnackbar('Ya existe una medición para ese turno.');
+          if(recordsCache.some(r=>r.registroTipo==='omitted'&&r.equipoId===dev.id&&r.slotProgramado===key))return showSnackbar('Este turno ya está declarado como no realizado.');
+          await dbAddRecord({id:'omit-'+now+'-'+Math.random().toString(36).slice(2,8),equipoId:dev.id,equipoNombre:dev.nombre,temperatura:null,
+            fecha:date,timestamp:scheduled,recordedAt:now,foto:null,responsable:document.getElementById('recordEmployeeInput').value.trim(),observaciones:reason,
+            registroTipo:'omitted',slotProgramado:key,fueraDeRango:false});
+        } else {
+          const tempVal=RecordCore.parseTemperature(tempInput.value);
+          if(!Number.isFinite(tempVal)) return showSnackbar('Introduce una temperatura válida (ej. −21,7 o +65.5).');
+          if(mode==='late') {
+            measuredAt=new Date(document.getElementById('priorMeasureAt').value).getTime();
+            reason=document.getElementById('priorReason').value.trim();
+            if(!Number.isFinite(measuredAt)||measuredAt>now||measuredAt<now-366*86400000||!reason)
+              return showSnackbar('Indica la hora real de medición (máx. 1 año) y motivo del registro posterior.');
+          } else if(mode==='correction') {
+            base=recordsCache.find(r=>r.id===correctionTargetId);
+            reason=document.getElementById('correctionReason').value.trim();
+            if(!base||!RecordCore.isMeasurement(base)||!reason)return showSnackbar('Selecciona el registro y explica la corrección.');
+            measuredAt=base.timestamp;
+          }
+          if(!currentCompressedPhoto && !(base && base.foto)) return showSnackbar('Añade una foto del termómetro antes de guardar.');
+          const range = base ? RecordCore.recordRange(base, dev) : dev;
+          const out=isTempOutOfRange(range,tempVal);
+          const notes=document.getElementById('recordNotesInput').value.trim();
+          if(out&&!notes) { validateLiveTemperatureInput(); document.getElementById('recordNotesInput').focus(); return showSnackbar('Temperatura fuera de rango: escribe la Acción correctiva.'); }
+          const record={id:'rec-'+now+'-'+Math.random().toString(36).slice(2,8),equipoId:dev.id,equipoNombre:dev.nombre,temperatura:tempVal,
+            fecha:RecordCore.dateISO(measuredAt),timestamp:measuredAt,recordedAt:now,
+            foto:currentCompressedPhoto||(base&&base.foto)||null,
+            fotoCapturadaEn:currentCompressedPhoto?now:(base&&base.fotoCapturadaEn)||null,
+            responsable:employee,observaciones:notes,fueraDeRango:out,
+            minTemp:range.minTemp,maxTemp:range.maxTemp,equipoTipo:base ? (base.equipoTipo || dev.tipo) : dev.tipo,
+            registroTipo:mode, motivoRegistro:mode==='late'?reason:'', motivoCorreccion:mode==='correction'?reason:'',
+            supersedesId:mode==='correction'?base.id:null};
+          await dbAddRecord(record);
+        }
+        await loadAllData();
+        tempInput.value='';document.getElementById('recordNotesInput').value='';
+        document.getElementById('priorReason').value='';document.getElementById('omittedReason').value='';
+        document.getElementById('recordEmployeeInput').value='';
+        currentCompressedPhoto=null;photoInput.value='';
+        document.getElementById('photoPreviewState').classList.add('hidden');
+        document.getElementById('photoEmptyState').classList.remove('hidden');
+        resetEntryMode();renderAll();showSnackbar('Registro guardado sin borrar el historial');switchView('view-home');
+      } catch (error) { showSnackbar('No se pudo guardar: ' + error.message); }
+      finally { savingRecord = false; document.getElementById('btnSaveRecord').disabled = false; }
     });
 
     document.getElementById('historyFilterDevice').addEventListener('change', renderHistoryView);
@@ -1011,27 +1057,31 @@
     document.getElementById('btnOpenAddDevice').addEventListener('click', () => openDeviceModal(null));
     document.getElementById('btnCloseDeviceModal').addEventListener('click', () => document.getElementById('deviceModal').classList.add('hidden'));
     document.getElementById('btnCancelDeviceModal').addEventListener('click', () => document.getElementById('deviceModal').classList.add('hidden'));
-    document.getElementById('deviceTypeSelect').addEventListener('change', e => {
-      if (e.target.value === 'REFRIGERACION') { document.getElementById('deviceMinTempInput').value = 0; document.getElementById('deviceMaxTempInput').value = 4; }
-      else if (e.target.value === 'CONGELACION') { document.getElementById('deviceMinTempInput').value = -24; document.getElementById('deviceMaxTempInput').value = -18; }
-    });
+    // Category is descriptive only. It never supplies or changes device limits.
     document.getElementById('deviceForm').addEventListener('submit', async e => {
       e.preventDefault();
-      await dbPut(STORE_DEVICES, {
-        id: document.getElementById('deviceIdInput').value || ('eq-' + Date.now()),
-        nombre: document.getElementById('deviceNameInput').value.trim(),
-        tipo: document.getElementById('deviceTypeSelect').value,
-        minTemp: parseFloat(document.getElementById('deviceMinTempInput').value),
-        maxTemp: parseFloat(document.getElementById('deviceMaxTempInput').value),
-        ubicacion: document.getElementById('deviceLocationInput').value.trim(),
-        orden: document.getElementById('deviceOrderInput').value.trim() ? Number(document.getElementById('deviceOrderInput').value) : null,
-        activo: document.getElementById('deviceActiveInput').checked,
-        createdAt: (devicesCache.find(d=>d.id===document.getElementById('deviceIdInput').value)||{}).createdAt||Date.now()
-      });
-      await loadAllData();
-      renderAll();
-      document.getElementById('deviceModal').classList.add('hidden');
-      showSnackbar('Equipo guardado');
+      const minTemp=RecordCore.parseTemperature(document.getElementById('deviceMinTempInput').value);
+      const maxTemp=RecordCore.parseTemperature(document.getElementById('deviceMaxTempInput').value);
+      const name=document.getElementById('deviceNameInput').value.trim();
+      if(!name || !Number.isFinite(minTemp) || !Number.isFinite(maxTemp) || minTemp > maxTemp)
+        return showSnackbar('Indica nombre y límites válidos: mínima menor o igual que máxima.');
+      try {
+        await dbPut(STORE_DEVICES, {
+          ...(devicesCache.find(d => d.id === document.getElementById('deviceIdInput').value) || {}),
+          id: document.getElementById('deviceIdInput').value || ('eq-' + Date.now()),
+          nombre: name,
+          tipo: document.getElementById('deviceTypeSelect').value,
+          minTemp, maxTemp,
+          ubicacion: document.getElementById('deviceLocationInput').value.trim(),
+          orden: document.getElementById('deviceOrderInput').value.trim() ? Number(document.getElementById('deviceOrderInput').value) : null,
+          activo: document.getElementById('deviceActiveInput').checked,
+          createdAt: (devicesCache.find(d=>d.id===document.getElementById('deviceIdInput').value)||{}).createdAt||Date.now()
+        });
+        await loadAllData();
+        renderAll();
+        document.getElementById('deviceModal').classList.add('hidden');
+        showSnackbar('Equipo guardado');
+      } catch (error) { showSnackbar('No se pudo guardar el equipo: ' + error.message); }
     });
 
     document.getElementById('btnClosePhotoViewer').addEventListener('click', () => document.getElementById('photoViewerModal').classList.add('hidden'));

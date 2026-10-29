@@ -31,4 +31,19 @@ assert(csv.includes('"Equipo";"Fecha de medición";"Hora de medición"'));
 assert(!csv.includes('Registro tardío'));
 assert(csv.includes('"-18,7"'));
 assert(U.csv([{equipo:'=HYPERLINK("evil")',fecha:'',hora:'',temperatura:'',responsable:'',observaciones:''}]).includes("'="));
-console.log('Record core: 16 checks passed');
+for (const [input,expected] of [['−21.7',-21.7],['-17,5',-17.5],['+65',65],['  +5.25  ',5.25],['0',0],['.5',0.5],['-.5',-0.5],['125.5',125.5]]) {
+  assert.equal(U.parseTemperature(input),expected);
+}
+for (const invalid of ['', ' ', null, undefined, Infinity, '1e3', '12abc', '1,2.3', '--2']) assert(Number.isNaN(U.parseTemperature(invalid)));
+const saved={...late,minTemp:-24.5,maxTemp:-18,temperatura:-17.5,fueraDeRango:true};
+const changedDevice={id:'d2',nombre:'AHT 01',minTemp:-30,maxTemp:0};
+assert(U.isRecordOutOfRange(saved,changedDevice));
+assert(!U.isRecordOutOfRange({...saved,temperatura:-18},changedDevice));
+assert(!U.isRecordOutOfRange({...saved,temperatura:-24.5},changedDevice));
+assert(U.isRecordOutOfRange({...late,fueraDeRango:true},changedDevice));
+assert(!U.isRecordOutOfRange({...late,fueraDeRango:false},{minTemp:0,maxTemp:5}));
+assert(U.isRecordOutOfRange({...late,temperatura:6},{minTemp:0,maxTemp:5}));
+assert(!U.isRecordOutOfRange(missed,{minTemp:0,maxTemp:5}));
+assert.equal(U.exportRows([saved],[changedDevice])[0].maxTemp,-18);
+assert.equal(U.effective([{...saved,id:'am',temperatura:-19.2},{...saved,id:'pm'}]).length,2);
+console.log('Record core: history, decimal parsing, range snapshots, legacy alerts and exports passed');
