@@ -31,7 +31,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ${{ runner.temp }}
+        working-directory: /tmp
     steps:
       # No checkout, project execution, signing secrets, or private keystore is needed.
       - name: Validate original successful build and download exact artifact
