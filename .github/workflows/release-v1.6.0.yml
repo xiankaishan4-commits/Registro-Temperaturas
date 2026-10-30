@@ -1,0 +1,175 @@
+name: Publish verified Android APK v1.6.0
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/release-v1.6.0.yml]
+
+permissions: {}
+
+concurrency:
+  group: release-v1.6.0
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'xiankaishan4-commits/Registro-Temperaturas' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_REPO: xiankaishan4-commits/Registro-Temperaturas
+      SOURCE_RUN: '40969699728'
+      SOURCE_SHA: 075285444d9df2f0294bef63e1c4809de8fae441
+      ARTIFACT_ID: '12939617008'
+      ARTIFACT_SHA256: 852cd662a14a00aa63cba1b2b228816e176e22cf0f9336bf5aef1512c242de98
+      APK_NAME: Registro_Temperaturas_v1.6.0_Firmado.apk
+      CERT_SHA256: CA948872880E588B54F63077AC25BDDCC13CE8C5126CBC38AF27DC26B30129CA
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ runner.temp }}
+    steps:
+      # No checkout, project execution, signing secrets, or private keystore is needed.
+      - name: Validate original successful build and download exact artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-v1.6.0
+          cd release-v1.6.0
+          gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN" > run.json
+          gh api "repos/$GH_REPO/actions/artifacts/$ARTIFACT_ID" > artifact.json
+          python3 - <<'PY'
+          import json, os
+          r = json.load(open('run.json'))
+          a = json.load(open('artifact.json'))
+          assert r['id'] == int(os.environ['SOURCE_RUN'])
+          assert r['repository']['full_name'] == os.environ['GH_REPO']
+          assert r['head_repository']['full_name'] == os.environ['GH_REPO']
+          assert r['status'] == 'completed' and r['conclusion'] == 'success'
+          assert r['event'] == 'push' and r['head_branch'] == 'main'
+          assert r['head_sha'] == os.environ['SOURCE_SHA']
+          assert r['path'] == '.github/workflows/build-android-apk.yml'
+          assert a['id'] == int(os.environ['ARTIFACT_ID']) and not a['expired']
+          assert a['name'] == 'Registro_Temperaturas_APK_Firmado_v1.6.0'
+          assert a['digest'] == 'sha256:' + os.environ['ARTIFACT_SHA256']
+          assert a['workflow_run']['id'] == r['id']
+          assert a['workflow_run']['head_sha'] == os.environ['SOURCE_SHA']
+          print('Original build and artifact provenance verified.')
+          PY
+          gh api "repos/$GH_REPO/actions/artifacts/$ARTIFACT_ID/zip" > artifact.zip
+          printf '%s  artifact.zip\n' "$ARTIFACT_SHA256" | sha256sum --check --strict
+
+      - name: Verify APK signature, permanent certificate, and embedded version
+        run: |
+          set -euo pipefail
+          cd release-v1.6.0
+          python3 - <<'PY'
+          import os, pathlib, zipfile
+          with zipfile.ZipFile('artifact.zip') as z:
+              entries = z.infolist()
+              assert len(entries) == 1, 'Artifact must contain only the APK'
+              e = entries[0]
+              assert e.filename == os.environ['APK_NAME'] and not e.is_dir()
+              assert 0 < e.file_size < 100_000_000
+              pathlib.Path(os.environ['APK_NAME']).write_bytes(z.read(e))
+          PY
+          TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          if [ ! -x "$TOOLS/apksigner" ] || [ ! -x "$TOOLS/aapt" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
+            test -n "$SDKMANAGER"
+            "$SDKMANAGER" --install 'build-tools;35.0.0'
+          fi
+          "$TOOLS/apksigner" verify --verbose --print-certs "$APK_NAME" > signature.txt
+          "$TOOLS/aapt" dump badging "$APK_NAME" > badging.txt
+          python3 - <<'PY'
+          import os, pathlib, re
+          sig = pathlib.Path('signature.txt').read_text()
+          certs = re.findall(r'^Signer #\d+ certificate SHA-256 digest: (\w+)$', sig, re.M)
+          assert len(certs) == 1 and certs[0].upper() == os.environ['CERT_SHA256']
+          assert 'androiddebugkey' not in sig.lower()
+          badging = pathlib.Path('badging.txt').read_text()
+          package = next(line for line in badging.splitlines() if line.startswith('package:'))
+          attrs = dict(re.findall(r"(\w+)='([^']*)'", package))
+          assert attrs['name'] == 'com.shanfoodsgroup.temperaturas'
+          assert attrs['versionName'] == '1.6.0' and attrs['versionCode'] == '10'
+          print(package)
+          print('Verified permanent signing certificate SHA-256:', certs[0].upper())
+          PY
+          sha256sum "$APK_NAME" > SHA256SUMS
+          cat SHA256SUMS
+          {
+            printf '# Registro de Temperaturas v1.6.0\n\n'
+            printf 'APK Android firmado con la identidad permanente de SHANFOODSGROUP.\n\n'
+            printf -- '- Versión: 1.6.0 (versionCode 10).\n'
+            printf -- '- Paquete: `com.shanfoodsgroup.temperaturas`.\n'
+            printf -- '- Android 10 o posterior.\n'
+            printf -- '- APK original de [GitHub Actions %s](https://github.com/%s/actions/runs/%s), reutilizado sin recompilar ni volver a firmar.\n' "$SOURCE_RUN" "$GH_REPO" "$SOURCE_RUN"
+            printf -- '- Commit de origen: `%s`.\n' "$SOURCE_SHA"
+            printf -- '- Certificado público SHA-256: `%s`.\n\n' "$CERT_SHA256"
+            printf 'Descargue el archivo `.apk` para instalar. `SHA256SUMS` permite verificar su integridad.\n\n'
+            printf 'Las instalaciones con la misma firma permanente pueden actualizarse conservando sus datos. Si tiene una versión antigua con otra firma, exporte primero una copia ZIP y guárdela fuera del teléfono antes de desinstalarla; después instale este APK y restaure la copia.\n'
+          } > release-notes.md
+
+      - name: Create draft, verify uploaded assets, then publish official release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd release-v1.6.0
+          gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > releases.json
+          gh api "repos/$GH_REPO/git/matching-refs/tags/v1.6.0" > refs.json
+          python3 - <<'PY'
+          import json, os
+          releases = [r for page in json.load(open('releases.json')) for r in page]
+          assert not any(r['tag_name'] == 'v1.6.0' for r in releases), 'Release exists; refuse to overwrite it'
+          refs = [r for r in json.load(open('refs.json')) if r['ref'] == 'refs/tags/v1.6.0']
+          assert not refs or (len(refs) == 1 and refs[0]['object']['type'] == 'commit' and refs[0]['object']['sha'] == os.environ['SOURCE_SHA']), 'Existing tag does not match original build'
+          PY
+          gh release create v1.6.0 "$APK_NAME" SHA256SUMS --repo "$GH_REPO" \
+            --target "$SOURCE_SHA" --title 'Registro de Temperaturas v1.6.0' \
+            --notes-file release-notes.md --draft
+          mkdir uploaded
+          gh release download v1.6.0 --repo "$GH_REPO" --dir uploaded
+          cmp "$APK_NAME" "uploaded/$APK_NAME"
+          cmp SHA256SUMS uploaded/SHA256SUMS
+          (cd uploaded && sha256sum --check --strict SHA256SUMS)
+          gh api "repos/$GH_REPO/releases/tags/v1.6.0" > draft.json
+          python3 - <<'PY'
+          import json, os
+          r = json.load(open('draft.json'))
+          assert r['draft'] and not r['prerelease']
+          assert sorted(a['name'] for a in r['assets']) == sorted([os.environ['APK_NAME'], 'SHA256SUMS'])
+          assert all(a['state'] == 'uploaded' and a['size'] > 0 for a in r['assets'])
+          PY
+          gh release edit v1.6.0 --repo "$GH_REPO" --draft=false --latest
+
+      - name: Verify public download and published release
+        run: |
+          set -euo pipefail
+          cd release-v1.6.0
+          curl --fail --silent --show-error --retry 3 \
+            "https://api.github.com/repos/$GH_REPO/releases/tags/v1.6.0" > public-release.json
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, urllib.request
+          r = json.load(open('public-release.json'))
+          assert not r['draft'] and not r['prerelease'] and r['tag_name'] == 'v1.6.0'
+          assert sorted(a['name'] for a in r['assets']) == sorted([os.environ['APK_NAME'], 'SHA256SUMS'])
+          apk = next(a for a in r['assets'] if a['name'] == os.environ['APK_NAME'])
+          expected_url = 'https://github.com/' + os.environ['GH_REPO'] + '/releases/download/v1.6.0/' + os.environ['APK_NAME']
+          assert apk['browser_download_url'] == expected_url
+          with urllib.request.urlopen(expected_url, timeout=60) as response:
+              actual = hashlib.sha256(response.read()).hexdigest()
+          expected = hashlib.sha256(pathlib.Path(os.environ['APK_NAME']).read_bytes()).hexdigest()
+          assert actual == expected, 'Public download differs from verified APK'
+          print('Release:', r['html_url'])
+          print('Public APK:', expected_url)
+          print('APK SHA-256:', actual)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write(f"Published {r['html_url']}\n\nAPK: {expected_url}\n\nSHA-256: `{actual}`\n")
+          PY
+
