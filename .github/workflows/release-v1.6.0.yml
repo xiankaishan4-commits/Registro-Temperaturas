@@ -124,24 +124,41 @@ jobs:
           gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > releases.json
           gh api "repos/$GH_REPO/git/matching-refs/tags/v1.6.0" > refs.json
           python3 - <<'PY'
-          import json, os
+          import hashlib, json, os, pathlib
           releases = [r for page in json.load(open('releases.json')) for r in page]
-          assert not any(r['tag_name'] == 'v1.6.0' for r in releases), 'Release exists; refuse to overwrite it'
+          existing = [r for r in releases if r['tag_name'] == 'v1.6.0']
+          assert len(existing) <= 1
+          if existing:
+              r = existing[0]
+              assert r['draft'] and not r['prerelease'], 'Refuse to change a published release'
+              assert r['target_commitish'] == os.environ['SOURCE_SHA']
+              assert r['body'] == pathlib.Path('release-notes.md').read_text()
+              assert sorted(a['name'] for a in r['assets']) == sorted([os.environ['APK_NAME'], 'SHA256SUMS'])
+              for a in r['assets']:
+                  local = pathlib.Path(a['name']).read_bytes()
+                  assert a['state'] == 'uploaded' and a['size'] == len(local)
+                  assert a['digest'] == 'sha256:' + hashlib.sha256(local).hexdigest()
+              print('Resuming verified draft:', r['id'])
+          pathlib.Path('existing-release-id').write_text(str(existing[0]['id']) if existing else '')
           refs = [r for r in json.load(open('refs.json')) if r['ref'] == 'refs/tags/v1.6.0']
           assert not refs or (len(refs) == 1 and refs[0]['object']['type'] == 'commit' and refs[0]['object']['sha'] == os.environ['SOURCE_SHA']), 'Existing tag does not match original build'
           PY
-          gh release create v1.6.0 "$APK_NAME" SHA256SUMS --repo "$GH_REPO" \
-            --target "$SOURCE_SHA" --title 'Registro de Temperaturas v1.6.0' \
-            --notes-file release-notes.md --draft
+          if [ ! -s existing-release-id ]; then
+            gh release create v1.6.0 "$APK_NAME" SHA256SUMS --repo "$GH_REPO" \
+              --target "$SOURCE_SHA" --title 'Registro de Temperaturas v1.6.0' \
+              --notes-file release-notes.md --draft
+          fi
           mkdir uploaded
           gh release download v1.6.0 --repo "$GH_REPO" --dir uploaded
           cmp "$APK_NAME" "uploaded/$APK_NAME"
           cmp SHA256SUMS uploaded/SHA256SUMS
           (cd uploaded && sha256sum --check --strict SHA256SUMS)
-          gh api "repos/$GH_REPO/releases/tags/v1.6.0" > draft.json
+          gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > drafts.json
           python3 - <<'PY'
           import json, os
-          r = json.load(open('draft.json'))
+          matches = [r for page in json.load(open('drafts.json')) for r in page if r['tag_name'] == 'v1.6.0']
+          assert len(matches) == 1
+          r = matches[0]
           assert r['draft'] and not r['prerelease']
           assert sorted(a['name'] for a in r['assets']) == sorted([os.environ['APK_NAME'], 'SHA256SUMS'])
           assert all(a['state'] == 'uploaded' and a['size'] > 0 for a in r['assets'])
