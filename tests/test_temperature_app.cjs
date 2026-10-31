@@ -7,6 +7,7 @@ const path = require('node:path');
 const http = require('node:http');
 const {chromium} = require('playwright');
 const root = path.resolve(__dirname, '../app/src/main/assets');
+const version = /versionName '([^']+)'/.exec(fs.readFileSync(path.join(__dirname,'../app/build.gradle'),'utf8'))[1];
 const photo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jf1sAAAAASUVORK5CYII=', 'base64');
 const server = http.createServer((req,res) => {
   if (req.url === '/seed') return res.end('<html></html>');
@@ -66,6 +67,7 @@ async function exportZip(page) {
   const base=`http://127.0.0.1:${server.address().port}`;
   const browser = await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined});
   const context=await browser.newContext({viewport:{width:390,height:844}});
+  await context.addInitScript(version => { window.UpdateBridge = {getVersionName:()=>version}; }, version);
   const page=await context.newPage(); const errors=[]; page.on('pageerror',e=>errors.push(e.message));
   page.on('dialog',d=>d.accept());
   try {
@@ -123,13 +125,11 @@ async function exportZip(page) {
     await page.locator('#recordEmployeeInput').fill('Ana'); await save(page,3);
     await late('21:00','-17,5'); await attachPhoto(page); await page.locator('#recordEmployeeInput').fill('Luis');
     assert.equal(await page.locator('#tempWarningBanner').isVisible(),true);
-    assert.equal(await page.locator('#recordNotesInput').getAttribute('aria-required'),'true');
+    assert.equal(await page.locator('#recordNotesInput').getAttribute('aria-required'),'false');
     assert.equal(await page.locator('#tempWarningBanner').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(186, 26, 26)');
-    await page.locator('#btnSaveRecord').click();
-    await waitFor(page,()=>document.querySelector('#m3Snackbar').textContent.includes('Acción correctiva'));
-    assert.equal((await readDB(page)).records.length,3);
     if(process.env.RT_SCREENSHOT_DIR) await page.screenshot({path:path.join(process.env.RT_SCREENSHOT_DIR,'temperature-alert.png'),fullPage:true});
-    await page.locator('#recordNotesInput').fill('Trasladar producto y revisar el equipo'); await save(page,4);
+    await save(page,4); // Abnormal measurement with no action MUST persist unchanged.
+    assert.equal((await readDB(page)).records.find(r=>r.temperatura===-17.5).observaciones,'');
     data=await readDB(page); const pair=data.records.filter(r=>r.equipoId===aht);
     assert.deepEqual(pair.map(r=>r.temperatura).sort((a,b)=>a-b),[-19.2,-17.5]);
     assert(pair.every(r=>r.fecha===date && r.foto && r.responsable && r.minTemp===-24.5 && r.maxTemp===-18));
@@ -160,12 +160,92 @@ async function exportZip(page) {
     await waitFor(page,()=>document.querySelectorAll('.history-card').length===2);
     assert.equal(await page.locator('.history-alert').count(),1);
     // Correction uses the original measurement range, preserves original, reuses its photo.
-    await page.locator('.history-alert button').click();
+    await page.locator('.history-alert button').filter({hasText:'Corregir'}).click();
     assert((await page.locator('#selectedDeviceRangeInfo').textContent()).includes('-18'));
     await page.locator('#recordTempInput').fill('-20'); await page.locator('#correctionReason').fill('Error de transcripción');
     await save(page,6);
     data=await readDB(page); assert.equal(data.records.filter(r=>r.equipoId===aht).length,3);
     assert.equal(data.records.find(r=>r.registroTipo==='correction').maxTemp,-18);
+    // Optional action added later preserves ALL original measurement fields, and its author.
+    await nav(page,'history');
+    await page.locator('#historyFilterDevice').selectOption(aht);
+    const beforeAction=await readDB(page);
+    const corrected=beforeAction.records.find(r=>r.registroTipo==='correction');
+    const correctedCard=page.locator('.history-card').filter({hasText:'-20.0 °C'});
+    await correctedCard.locator('[data-add-action]').click();
+    await page.locator('#actionNotes').fill('Trasladar producto y revisar el equipo');
+    await page.locator('#actionAuthor').fill('Marta');
+    // Failed action write retains input and the existing audit trail.
+    await page.evaluate(()=>{
+      const add=IDBObjectStore.prototype.add;
+      IDBObjectStore.prototype.add=function(...args) {IDBObjectStore.prototype.add=add; const r=add.apply(this,args); this.transaction.abort(); return r;};
+    });
+    await page.locator('#btnSaveAction').click();
+    await waitFor(page,()=>document.querySelector('#m3Snackbar').textContent.includes('No se pudo guardar'));
+    assert.deepEqual(await readDB(page),beforeAction);
+    assert.equal(await page.locator('#actionNotes').inputValue(),'Trasladar producto y revisar el equipo');
+    await page.locator('#btnSaveAction').click(); await page.locator('#actionModal').waitFor({state:'hidden'});
+    data=await readDB(page); assert.equal(data.records.length,7);
+    assert.deepEqual(data.records.find(r=>r.id===corrected.id),corrected);
+    const action=data.records.find(r=>r.actionRecordedBy==='Marta');
+    for(const key of ['temperatura','foto','fotoCapturadaEn','responsable','timestamp','fecha','minTemp','maxTemp','equipoId','fueraDeRango']) assert.deepEqual(action[key],corrected[key],key);
+    assert.equal(action.supersedesId,corrected.id);
+    await correctedCard.locator('summary').click();
+    assert((await correctedCard.locator('details').textContent()).includes('Marta'));
+    assert((await correctedCard.locator('details').textContent()).includes('-17.5'));
+    // Both sides of independent bounds, including exact boundaries, never coerce readings.
+    for(const [temp,alert] of [['-31',true],['+1',true],['-30',false],['0',false]]) {
+      await nav(page,'record'); await page.locator('#recordDeviceSelect').selectOption(aht);
+      await page.locator('#recordTempInput').fill(temp); await attachPhoto(page); await page.locator('#recordEmployeeInput').fill('Ana');
+      assert.equal(await page.locator('#tempWarningBanner').isVisible(),alert);
+      await save(page,(await readDB(page)).records.length+1);
+      const saved=(await readDB(page)).records.find(r=>r.temperatura===Number(temp) && r.equipoId===aht);
+      assert(saved && saved.fueraDeRango===alert && saved.observaciones==='');
+    }
+    // Latest stable release, numeric version ordering, same/older release, missing APK,
+    // offline, HTTP/rate-limit errors, malformed payload, retry and native callback.
+    await nav(page,'devices');
+    assert.equal(await page.locator('#appVersion').textContent(),'Versión '+version);
+    assert.equal(await page.locator('#view-devices > div').last().getAttribute('id'),'appUpdateSettings');
+    const endpoint='https://api.github.com/repos/xiankaishan4-commits/Registro-Temperaturas/releases/latest';
+    const repo='https://github.com/xiankaishan4-commits/Registro-Temperaturas';
+    let response={draft:false,prerelease:false,tag_name:'v1.10.0',html_url:repo+'/releases/tag/v1.10.0',assets:[{state:'uploaded',size:50,browser_download_url:repo+'/releases/download/v1.10.0/app.apk'}]};
+    let code=200;
+    await page.route(endpoint,route=>route.fulfill({status:code,contentType:'application/json',body:JSON.stringify(response)}));
+    const updatesBefore=await readDB(page);
+    async function checkUpdate(text) {
+      await page.locator('#btnCheckUpdates').click();
+      await waitFor(page,text=>document.querySelector('#updateStatus').textContent.includes(text),text);
+      assert.equal(await page.locator('#btnCheckUpdates').isEnabled(),true);
+    }
+    await checkUpdate('Nueva versión'); assert.equal(await page.locator('#updateLinks a').count(),2);
+    assert.equal(await page.locator('#updateLinks a').last().getAttribute('href'),response.assets[0].browser_download_url);
+    response={...response,tag_name:'v'+version}; await checkUpdate('Ya tienes'); assert.equal(await page.locator('#updateLinks a').count(),0);
+    response={...response,tag_name:'v1.5.9'}; await checkUpdate('Ya tienes');
+    response={...response,tag_name:'v2.0.0',assets:[]}; await checkUpdate('todavía no está disponible');
+    code=403; await checkUpdate('HTTP 403'); assert.equal(await page.locator('#updateLinks a').count(),0);
+    code=200; response={}; await checkUpdate('no válida');
+    await context.setOffline(true); await checkUpdate('Sin conexión'); await context.setOffline(false);
+    await page.evaluate(()=>{window.UpdateBridge.check=id=>setTimeout(()=>window.RTUpdates.receive(id,{error:'Fallo nativo de red'}),20);});
+    await checkUpdate('Fallo nativo');
+    await page.evaluate(version=>{window.UpdateBridge.check=id=>window.RTUpdates.receive(id,{draft:false,prerelease:false,tag_name:'v'+version,html_url:'https://github.com/xiankaishan4-commits/Registro-Temperaturas/releases/tag/v'+version});},version);
+    await checkUpdate('Ya tienes');
+    await page.evaluate(()=>{
+      window.originalTimeout=window.setTimeout;
+      window.setTimeout=(fn,ms,...args)=>window.originalTimeout(fn,ms===25000?20:ms,...args);
+      window.UpdateBridge.check=()=>{};
+    });
+    await checkUpdate('Tiempo de espera agotado');
+    await page.evaluate(version=>{
+      window.setTimeout=window.originalTimeout;
+      window.UpdateBridge.check=id=>{
+        window.RTUpdates.receive(id-1,{error:'Respuesta antigua que debe ignorarse'});
+        window.RTUpdates.receive(id,{draft:false,prerelease:false,tag_name:'v'+version,html_url:'https://github.com/xiankaishan4-commits/Registro-Temperaturas/releases/tag/v'+version});
+      };
+    },version);
+    await checkUpdate('Ya tienes');
+    assert.deepEqual(await readDB(page),updatesBefore);
+    if(process.env.RT_SCREENSHOT_DIR) await page.screenshot({path:path.join(process.env.RT_SCREENSHOT_DIR,'settings-version.png'),fullPage:true});
     // Real ZIP download, clean-profile restore, same-ID deduplication, photos, metadata.
     await nav(page,'devices'); await page.locator('#companyNameInput').fill('Empresa nueva 食品'); await page.locator('#companySettingsForm button').click();
     const zip=await exportZip(page); const original=await readDB(page);
@@ -183,7 +263,7 @@ async function exportZip(page) {
     // Old JSON without settings, photos or author is accepted without inventing them.
     await restored.locator('#importZipInput').setInputFiles({name:'old.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({devices:[{id:'old-device',name:'Do not overwrite',min:99,max:100}],records:[{id:'import-old',deviceId:'old-device',temp:-21.7,timestamp:Date.now()}]}))});
     await waitFor(restored,()=>document.querySelector('#backupStatusText').textContent.includes('1 registros nuevos'));
-    const merged=await readDB(restored); assert.equal(merged.records.length,7);
+    const merged=await readDB(restored); assert.equal(merged.records.length,original.records.length+1);
     assert.equal(merged.devices.find(d=>d.id==='old-device').nombre,'Nevera antigua');
     assert.equal(await restored.locator('#companyNameDisplay').textContent(),'Empresa nueva 食品');
     // Corrupted ZIP leaves both data and company unchanged.

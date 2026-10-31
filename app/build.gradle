@@ -12,13 +12,14 @@ def signingValuesPresent = [releaseKeystore, releaseStorePassword, releaseKeyAli
 android {
     namespace 'com.shanfoodsgroup.temperaturas'
     compileSdk 35
+    buildFeatures { buildConfig true }
     defaultConfig {
         applicationId 'com.shanfoodsgroup.temperaturas'
         minSdk 29
         targetSdk 35
         // Must increase for future updates. Old APKs with a DIFFERENT key cannot be upgraded in place.
-        versionCode 10
-        versionName '1.6.0'
+        versionCode 11
+        versionName '1.6.1'
     }
     signingConfigs {
         release {

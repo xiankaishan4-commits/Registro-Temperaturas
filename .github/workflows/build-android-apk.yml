@@ -5,14 +5,32 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: android-release-main
+  cancel-in-progress: false
+
 jobs:
   build:
+    if: github.repository == 'xiankaishan4-commits/Registro-Temperaturas' && github.ref == 'refs/heads/main'
+    timeout-minutes: 25
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Obtener codigo
         uses: actions/checkout@v4
+
+      - name: Leer versión única de Gradle
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re
+          gradle = pathlib.Path('app/build.gradle').read_text()
+          version = re.search(r"versionName '(\d+\.\d+\.\d+)'", gradle).group(1)
+          code = re.search(r'versionCode (\d+)', gradle).group(1)
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'APP_VERSION={version}\nAPP_VERSION_CODE={code}\n')
+          PY
 
       - name: Java 17
         uses: actions/setup-java@v4
@@ -50,6 +68,7 @@ jobs:
       - name: Comprobar JavaScript
         run: |
           node --check app/src/main/assets/app.js
+          node --check app/src/main/assets/updates.js
           node --check app/src/main/assets/records-core.js
           node --check app/src/main/assets/report-core.js
           node --check app/src/main/assets/excel-core.js
@@ -58,6 +77,7 @@ jobs:
         run: |
           node tests/test_company_settings.cjs
           node tests/test_records_core.cjs
+          node tests/test_updates.cjs
           node tests/test_report_core.cjs
           node tests/test_excel_core.cjs
 
@@ -124,15 +144,30 @@ jobs:
             exit 1
           fi
           echo "APK signature verified: $ACTUAL"
-          cp "$APK" "$RUNNER_TEMP/Registro_Temperaturas_v1.6.0_Firmado.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" > "$RUNNER_TEMP/apk-badging.txt"
+          python3 - <<'PY'
+          import os, pathlib, re
+          line = pathlib.Path(os.environ['RUNNER_TEMP'], 'apk-badging.txt').read_text().splitlines()[0]
+          attrs = dict(re.findall(r"(\w+)='([^']*)'", line))
+          assert attrs['name'] == 'com.shanfoodsgroup.temperaturas'
+          assert attrs['versionName'] == os.environ['APP_VERSION']
+          assert attrs['versionCode'] == os.environ['APP_VERSION_CODE']
+          print('Verified APK metadata:', line)
+          PY
+          cp "$APK" "$RUNNER_TEMP/Registro_Temperaturas_v${APP_VERSION}_Firmado.apk"
 
       - name: Publicar solo APK firmado
         uses: actions/upload-artifact@v4
         with:
-          name: Registro_Temperaturas_APK_Firmado_v1.6.0
-          path: ${{ runner.temp }}/Registro_Temperaturas_v1.6.0_Firmado.apk
+          name: Registro_Temperaturas_APK_Firmado_v${{ env.APP_VERSION }}
+          path: ${{ runner.temp }}/Registro_Temperaturas_v${{ env.APP_VERSION }}_Firmado.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publicar Release oficial y verificar descarga pública
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish_release.py
 
       - name: Borrar keystore temporal
         if: always()

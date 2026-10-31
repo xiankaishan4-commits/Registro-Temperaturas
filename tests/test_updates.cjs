@@ -1,0 +1,17 @@
+const assert = require('node:assert/strict');
+require('../app/src/main/assets/updates.js');
+const {compare,releaseInfo,trustedLink}=globalThis.RTUpdates;
+assert.equal(compare('v1.10.0','1.9.9'),1);
+assert.equal(compare('1.6.1','v1.6.1'),0);
+assert.equal(compare('1.6.0','1.6.1'),-1);
+assert.equal(compare('2.0.0','1.99.99'),1);
+for(const invalid of ['v1.6','1.06.0','1.6.2-beta','oops','1.6.1\n','9007199254740992.0.0']) assert.throws(()=>compare(invalid,'1.6.1'));
+const base='https://github.com/xiankaishan4-commits/Registro-Temperaturas/releases/';
+const release={draft:false,prerelease:false,tag_name:'v1.6.2',html_url:base+'tag/v1.6.2',assets:[]};
+assert.equal(releaseInfo(release,'1.6.1').newer,true);
+assert.equal(releaseInfo(release,'1.6.2').newer,false);
+assert.equal(releaseInfo(release,'2.0.0').newer,false);
+assert.equal(releaseInfo(release,'1.6.1').apk,null);
+for(const bad of [null,{}, {...release,draft:true},{...release,prerelease:true},{...release,tag_name:'v1.6.2-rc.1'},{...release,html_url:'https://evil.test/release'}]) assert.throws(()=>releaseInfo(bad,'1.6.1'));
+for(const url of ['http://github.com/x.apk',base+'download/v1/a.apk?x=1',base+'download/v1/a.apk#x',base+'download/v1/a.exe','javascript:alert(1)','https://github.com.evil.test/x.apk']) assert.equal(trustedLink(url,'download'),false);
+console.log('Updates: numeric stable versions, latest/older, invalid responses and trusted download links passed');

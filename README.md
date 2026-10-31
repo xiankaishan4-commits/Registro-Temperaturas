@@ -1,13 +1,13 @@
 # Registro de Temperaturas (Android APK)
 
 ## 产品类型
-这不是 PWA 安装包：**这是用于生成真正 `.apk` 文件的 Android Studio 项目源码**。应用内置 HTML/CSS/JS，离线运行，**没有网络权限，不需要云端数据库**。
+这不是 PWA 安装包：**这是用于生成真正 `.apk` 文件的 Android Studio 项目源码**。应用内置 HTML/CSS/JS，离线运行，无需云端数据库；仅在用户点击“Buscar actualizaciones”时联网查询 GitHub 正式版本。
 
 ## 构建 APK（Windows Android Studio 或 GitHub Actions）
 
 已添加 `.github/workflows/build-android-apk.yml`，可利用 GitHub 的云端 Android 构建环境编译，无须本机下载 SDK。参见 `COMPILAR_APK.md`。
 
-正式 APK 通过 GitHub Actions 编译，并验证固定签名证书。请在对应成功运行的 Artifacts 中下载。
+正式 APK 通过 GitHub Actions 编译，并验证固定签名证书。成功构建后自动发布到 [GitHub Releases](https://github.com/xiankaishan4-commits/Registro-Temperaturas/releases/latest)，提供 APK 和 SHA256SUMS；Artifacts 仍保留。
 
 ## 方法二：本机 Android Studio
 1. 在 Windows 安装 Android Studio（首次安装会下载 Android SDK 和 Gradle）。
@@ -20,7 +20,7 @@
 每次发布仍应在真实设备上确认拍照、保存、备份、恢复功能。
 
 ## 操作
-- 首次打开：Equipos → 填写公司名称，添加设备或温度检查点及各自允许范围。
+- 首次打开：Ajustes → 填写公司名称，添加设备或温度检查点及各自允许范围。
 - 每天：记录 → 选择设备 → 输入温度、记录人、拍照。
 - 数据全部保存在**手机的 Android WebView IndexedDB** 中；无需网络。
 - 备份：Copias → Descargar copia ZIP；Android 弹出系统保存位置选择框，可选择本机或 Google Drive 文档提供程序。
@@ -40,7 +40,7 @@
 ## 文件
 - `app/src/main/assets` – 离线 HTML/CSS/JS 和图标
 - `app/src/main/java` – Android 原生 WebView、拍照文件选择器、备份保存/分享桥接器
-- `app/src/main/AndroidManifest.xml` – Android 配置（没有 INTERNET 权限）
+- `app/src/main/AndroidManifest.xml` – Android 配置（INTERNET 仅用于手动检查版本，无自动安装权限）
 - `app/build.gradle` – Android 构建配置
 
 ## v1.2.0-dev — Informe y control no realizado
@@ -94,3 +94,11 @@ La exportación `.xlsx` utiliza ahora **Desde / Hasta** y **Equipo** como PDF y 
 - Las nuevas mediciones guardan `minTemp`, `maxTemp` y `equipoTipo` como campos adicionales. El historial y los informes usan los límites guardados de esa medición; una corrección usa los límites originales. Cambiar el equipo después no reinterpreta la alerta histórica. Para registros antiguos sin límites guardados, se conserva `fueraDeRango` si existe; si no, el historial utiliza el rango del equipo disponible. No se pueden reconstruir límites históricos que nunca se guardaron.
 - Se mantienen nombre de empresa, paquete Android, origen WebView, bases IndexedDB, IDs existentes y formato de copia v2. La restauración sigue siendo aditiva: un ID existente conserva sus datos locales y su configuración. Una copia antigua sin empresa conserva el nombre actual. Los registros antiguos sin foto o responsable se importan sin inventar datos; los requisitos nuevos se aplican al guardar nuevas mediciones.
 - `versionCode 10`, firma permanente existente. Ver [TESTING_TEMPERATURES.md](TESTING_TEMPERATURES.md) para las pruebas automatizadas y comprobaciones en móvil pendientes.
+
+## v1.6.1 — Mediciones reales y actualizaciones manuales
+
+- Se guarda cualquier temperatura numérica real, incluso fuera de los límites independientes del equipo. La alerta roja permanece; Acción correctiva es opcional. Nunca se ajusta automáticamente la lectura al rango.
+- En Historial → Añadir acción correctiva se anota texto, autor y fecha de registro. Se añade una revisión enlazada; temperatura, equipo, foto, responsable original, hora de medición y límites guardados permanecen intactos. Historial de auditoría muestra las revisiones y ZIP/JSON conserva todas.
+- Al final de Ajustes se muestra la versión de `BuildConfig.VERSION_NAME` (fuente única: `app/build.gradle`) y Buscar actualizaciones. La consulta HTTPS solo lee el último Release oficial de este repositorio; no transmite mediciones, fotos ni datos de empresa. Informa de versión actual/nueva, falta de APK, fallo de red/consulta y tiempo agotado. Los enlaces se abren en el navegador; no hay instalación automática.
+- Versión 1.6.1, versionCode 11. Mismo paquete, origen WebView, bases locales y certificado permanente que v1.6.0. Actualizar sobre la aplicación existente, sin desinstalar ni borrar datos.
+- CI ejecuta regresiones, compila y valida certificado, paquete y versión embebida. Publica primero como borrador, descarga y compara los bytes, publica el Release y verifica la descarga pública. Nunca reemplaza un APK publicado distinto.

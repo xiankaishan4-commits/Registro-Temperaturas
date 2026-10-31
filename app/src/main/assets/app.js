@@ -12,6 +12,7 @@
   let currentCompressedPhoto = null;
   let showOnlyAlertsHistory = false;
   let correctionTargetId = null;
+  let actionTargetId = null;
   const RecordCore = window.RTRecords;
   const DEVICE_TYPES = {REFRIGERACION: 'Refrigeración', CONGELACION: 'Congelación',
     AMBIENTE: 'Ambiente', ALIMENTOS_CALIENTES: 'Alimentos calientes', PERSONALIZADO: 'Personalizado'};
@@ -608,9 +609,9 @@
     const notes = document.getElementById('recordNotesInput');
     const temp = RecordCore.parseTemperature(rawVal);
     const out = document.getElementById('recordEntryMode').value !== 'omitted' && dev && Number.isFinite(temp) && isTempOutOfRange(dev, temp);
-    notes.required = Boolean(out);
-    notes.setAttribute('aria-required', String(Boolean(out)));
-    document.getElementById('recordNotesLabel').textContent = out ? 'Acción correctiva * (obligatoria fuera de rango)' : 'Observaciones / Acción correctiva';
+    notes.required = false;
+    notes.setAttribute('aria-required', 'false');
+    document.getElementById('recordNotesLabel').textContent = 'Observaciones / Acción correctiva (opcional)';
     if (!dev || !Number.isFinite(temp)) {
       container.classList.remove('is-out-of-range');
       banner.classList.add('hidden');
@@ -620,7 +621,7 @@
       container.classList.add('is-out-of-range');
       banner.classList.remove('hidden');
       document.getElementById('tempWarningText').textContent =
-        `Valor: ${temp}°C (Límite de ${dev.nombre}: ${dev.minTemp}°C a ${dev.maxTemp}°C). Puedes guardarlo con una acción correctiva.`;
+        `Valor: ${temp}°C (Límite de ${dev.nombre}: ${dev.minTemp}°C a ${dev.maxTemp}°C). Se guardará el valor real. La acción correctiva es opcional y puede añadirse después desde Historial.`;
     } else {
       container.classList.remove('is-out-of-range');
       banner.classList.add('hidden');
@@ -679,6 +680,29 @@
         modify.type = 'button'; modify.textContent = '✏️ Corregir';
         modify.addEventListener('click', () => startCorrection(rec.id));
         card.querySelector('.history-body').appendChild(modify);
+        const action = document.createElement('button');
+        action.className = 'm3-btn m3-btn-tonal m3-btn-sm';
+        action.type = 'button'; action.textContent = 'Añadir acción correctiva';
+        action.dataset.addAction = rec.id;
+        action.addEventListener('click', () => {
+          actionTargetId = rec.id;
+          document.getElementById('actionForm').reset();
+          document.getElementById('actionDetails').textContent = `${devName}: ${rec.temperatura} °C · ${formatDisplayDate(rec.fecha)} ${formatTime(rec.timestamp)}. La medición original se conserva.`;
+          document.getElementById('actionModal').classList.remove('hidden');
+        });
+        card.querySelector('.history-body').appendChild(action);
+        const audit = document.createElement('details');
+        const summary = document.createElement('summary'); summary.textContent = 'Historial de auditoría';
+        audit.appendChild(summary);
+        const visited = new Set(); let entry = rec;
+        while (entry && !visited.has(entry.id)) {
+          visited.add(entry.id);
+          const line = document.createElement('p');
+          line.textContent = `${new Date(entry.recordedAt || entry.timestamp).toLocaleString('es-ES')} · ${entry.actionRecordedBy || entry.responsable || 'Sin responsable'} · ${entry.temperatura} °C · ${entry.motivoCorreccion || 'Registro original'} · ${entry.observaciones || 'Sin acción correctiva'}`;
+          audit.appendChild(line);
+          entry = recordsCache.find(r => r.id === entry.supersedesId);
+        }
+        card.querySelector('.history-body').appendChild(audit);
       }
       listEl.appendChild(card);
     });
@@ -933,6 +957,31 @@
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
+    window.RTUpdates.init();
+    document.getElementById('btnCancelAction').addEventListener('click', () => document.getElementById('actionModal').classList.add('hidden'));
+    let savingAction = false;
+    document.getElementById('actionForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      if (savingAction) return;
+      const base = recordsCache.find(r => r.id === actionTargetId);
+      const notes = document.getElementById('actionNotes').value.trim();
+      const author = document.getElementById('actionAuthor').value.trim();
+      if (!base || !notes || !author) return showSnackbar('Indica la acción y quién la añadió.');
+      if (!RecordCore.effective(recordsCache).some(r => r.id === base.id)) return showSnackbar('El registro cambió. Vuelve a abrirlo desde Historial.');
+      savingAction = true;
+      document.getElementById('btnSaveAction').disabled = true;
+      try {
+        const now = Date.now();
+        await dbAddRecord({...base, id:'rec-'+now+'-'+Math.random().toString(36).slice(2,8),
+          registroTipo:'correction', supersedesId:base.id, recordedAt:now,
+          motivoCorreccion:'Ampliación de acción correctiva', actionRecordedBy:author,
+          observaciones:[base.observaciones, notes].filter(Boolean).join('\n')});
+        await loadAllData(); renderAll();
+        document.getElementById('actionModal').classList.add('hidden');
+        showSnackbar('Acción añadida. Medición e historial conservados.');
+      } catch (error) { showSnackbar('No se pudo guardar: ' + error.message); }
+      finally { savingAction = false; document.getElementById('btnSaveAction').disabled = false; }
+    });
     renderCompanyName();
     document.getElementById('companySettingsForm').addEventListener('submit', e => {
       e.preventDefault();
@@ -1025,7 +1074,6 @@
           const range = base ? RecordCore.recordRange(base, dev) : dev;
           const out=isTempOutOfRange(range,tempVal);
           const notes=document.getElementById('recordNotesInput').value.trim();
-          if(out&&!notes) { validateLiveTemperatureInput(); document.getElementById('recordNotesInput').focus(); return showSnackbar('Temperatura fuera de rango: escribe la Acción correctiva.'); }
           const record={id:'rec-'+now+'-'+Math.random().toString(36).slice(2,8),equipoId:dev.id,equipoNombre:dev.nombre,temperatura:tempVal,
             fecha:RecordCore.dateISO(measuredAt),timestamp:measuredAt,recordedAt:now,
             foto:currentCompressedPhoto||(base&&base.foto)||null,

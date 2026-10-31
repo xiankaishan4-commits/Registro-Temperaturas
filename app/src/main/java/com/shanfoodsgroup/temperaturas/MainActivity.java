@@ -68,6 +68,7 @@ public class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(true);
         view.addJavascriptInterface(new BackupBridge(),"AndroidBridge");
+        view.addJavascriptInterface(new UpdateBridge(this, view), "UpdateBridge");
         view.addJavascriptInterface(new ReminderBridge(), "ReminderBridge");
         ReminderScheduler.scheduleNext(this);
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -88,7 +89,7 @@ public class MainActivity extends Activity {
                 if(!path.startsWith("/assets/"))return errorResponse();
                 path=path.substring("/assets/".length());
                 // Assets are a fixed whitelist. Do not expose private Android app files.
-                if(!path.matches("(index\\.html|app\\.js|records-core\\.js|report-core\\.js|excel-core\\.js|vendor/exceljs\\.min\\.js|styles\\.css|icon-192\\.png|icon-512\\.png|manifest\\.webmanifest)"))return errorResponse();
+                if(!path.matches("(index\\.html|app\\.js|updates\\.js|records-core\\.js|report-core\\.js|excel-core\\.js|vendor/exceljs\\.min\\.js|styles\\.css|icon-192\\.png|icon-512\\.png|manifest\\.webmanifest)"))return errorResponse();
                 String mime=path.endsWith(".html")?"text/html":path.endsWith(".js")?"application/javascript":path.endsWith(".css")?"text/css":path.endsWith(".png")?"image/png":"application/manifest+json";
                 try{
                     InputStream in=getAssets().open(path);
