@@ -306,3 +306,11 @@ html, body {
 .export-date-presets .m3-btn { flex:0 0 auto; min-width:unset; }
 .export-date-presets .m3-btn.selected { background:#d6e8ff; color:#17457a; border-color:#17457a; font-weight:700; }
 .reports-excel-card { border-color:#c8dfd8; }
+
+/* Cleaning uses the existing cards, controls and navigation. */
+.cl-tabs { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.cl-done { color:#146b32; font-weight:700; }
+.cl-pending { color:#ba1a1a; font-weight:700; }
+#cleaningRoot .m3-input, #cleaningRoot .m3-select { margin-bottom:12px; }
+#cleaningRoot .m3-modal-sheet { max-height:85vh; overflow-y:auto; }
+#cleaningRoot .cleaning-record p { white-space:pre-wrap; overflow-wrap:anywhere; }

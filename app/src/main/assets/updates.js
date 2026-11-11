@@ -2,15 +2,27 @@
   'use strict';
   const REPO = 'https://github.com/xiankaishan4-commits/Registro-Temperaturas';
   function versionParts(version) {
-    const match = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[\w.-]+)?$/.exec(version);
-    if (!match) throw Error('Versión no válida');
+    const match = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
+    if (!match || match[0] !== version) throw Error('Versión no válida');
     const parts = match.slice(1, 4).map(Number);
     if (!parts.every(Number.isSafeInteger)) throw Error('Versión no válida');
+    parts.pre = match[4] ? match[4].split('.') : [];
+    if (parts.pre.some(p => /^\d+$/.test(p) && p.length > 1 && p[0] === '0')) throw Error('Versión no válida');
     return parts;
   }
   function compare(a, b) {
     const x = versionParts(a), y = versionParts(b);
     for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i] ? 1 : -1;
+    if (!x.pre.length || !y.pre.length) return x.pre.length ? -1 : y.pre.length ? 1 : 0;
+    for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
+      const a = x.pre[i], b = y.pre[i];
+      if (a === b) continue;
+      if (a === undefined || b === undefined) return a === undefined ? -1 : 1;
+      const an = /^\d+$/.test(a), bn = /^\d+$/.test(b);
+      if (an !== bn) return an ? -1 : 1;
+      if (an && a.length !== b.length) return a.length > b.length ? 1 : -1;
+      return a > b ? 1 : -1;
+    }
     return 0;
   }
   function trustedLink(url, kind) {
@@ -20,7 +32,7 @@
   }
   function releaseInfo(release, current) {
     if (!release || release.draft !== false || release.prerelease !== false ||
-        !trustedLink(release.html_url, 'tag')) throw Error('Respuesta de GitHub no válida');
+        !trustedLink(release.html_url, 'tag') || versionParts(release.tag_name).pre.length) throw Error('Respuesta de GitHub no válida');
     const newer = compare(release.tag_name, current) > 0;
     const apk = (Array.isArray(release.assets) ? release.assets : []).find(a =>
       a.state === 'uploaded' && a.size > 0 && trustedLink(a.browser_download_url, 'download'));
@@ -70,7 +82,8 @@
         if (!current) throw Error('No se pudo leer la versión instalada. Abre la aplicación Android');
         if (typeof navigator !== 'undefined' && navigator.onLine === false) throw Error('Sin conexión a Internet');
         const info = releaseInfo(await query(), current);
-        status.textContent = info.newer ? `Nueva versión disponible: ${info.version}.` : 'Ya tienes la última versión disponible.';
+        status.textContent = info.newer ? `Nueva versión disponible: ${info.version}.` :
+          versionParts(current).pre.length ? `No hay una actualización oficial más reciente. Última versión oficial: ${info.version}. Versión instalada: ${current}.` : 'Ya tienes la última versión disponible.';
         if (info.newer) {
           addLink(info.release, 'Ver Release en GitHub');
           if (info.apk) addLink(info.apk, 'Descargar APK');

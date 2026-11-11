@@ -86,7 +86,9 @@
         </div>
         <div id="checkedDevicesList" class="device-cards-grid"></div>
       </div>
+      <div class="m3-card"><h2 class="card-title">Registro de Limpieza</h2><p class="card-helper">Controles diarios, tareas periódicas e historial de limpieza.</p><button id="btnOpenCleaning" class="m3-btn m3-btn-primary">Abrir Registro de Limpieza</button></div>
     </section>
+    <section id="view-cleaning" class="view-section"><div id="cleaningRoot"></div></section>
 
     <!-- VISTA 2: REGISTRAR TEMPERATURA -->
     <section id="view-record" class="view-section">
@@ -424,6 +426,11 @@
   <script src="vendor/exceljs.min.js"></script>
   <script src="excel-core.js"></script>
   <script src="updates.js"></script>
+  <script src="cleaning-vendor/pdf-lib.min.js"></script>
+  <script src="cleaning-vendor/fontkit.min.js"></script>
+  <script src="cleaning-core.js"></script>
+  <script src="cleaning-export.js"></script>
+  <script src="cleaning.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

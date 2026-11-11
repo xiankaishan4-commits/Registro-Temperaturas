@@ -89,11 +89,11 @@ public class MainActivity extends Activity {
                 if(!path.startsWith("/assets/"))return errorResponse();
                 path=path.substring("/assets/".length());
                 // Assets are a fixed whitelist. Do not expose private Android app files.
-                if(!path.matches("(index\\.html|app\\.js|updates\\.js|records-core\\.js|report-core\\.js|excel-core\\.js|vendor/exceljs\\.min\\.js|styles\\.css|icon-192\\.png|icon-512\\.png|manifest\\.webmanifest)"))return errorResponse();
-                String mime=path.endsWith(".html")?"text/html":path.endsWith(".js")?"application/javascript":path.endsWith(".css")?"text/css":path.endsWith(".png")?"image/png":"application/manifest+json";
+                if(!path.matches("(index\\.html|cleaning(?:-core|-export)?\\.js|cleaning-vendor/(?:pdf-lib\\.min\\.js|fontkit\\.min\\.js|NotoSans-Regular\\.ttf)|app\\.js|updates\\.js|records-core\\.js|report-core\\.js|excel-core\\.js|vendor/exceljs\\.min\\.js|styles\\.css|icon-192\\.png|icon-512\\.png|manifest\\.webmanifest)"))return errorResponse();
+                String mime=path.endsWith(".html")?"text/html":path.endsWith(".js")?"application/javascript":path.endsWith(".css")?"text/css":path.endsWith(".ttf")?"font/ttf":path.endsWith(".png")?"image/png":"application/manifest+json";
                 try{
                     InputStream in=getAssets().open(path);
-                    WebResourceResponse response=new WebResourceResponse(mime,path.endsWith(".png")?null:"UTF-8",in);
+                    WebResourceResponse response=new WebResourceResponse(mime,(path.endsWith(".png")||path.endsWith(".ttf"))?null:"UTF-8",in);
                     response.setResponseHeaders(java.util.Collections.singletonMap("Cache-Control","no-store"));
                     return response;
                 }catch(IOException ex){return errorResponse();}

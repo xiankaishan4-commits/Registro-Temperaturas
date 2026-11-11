@@ -1,5 +1,6 @@
 import re
 import unittest
+import subprocess
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent.parent
@@ -8,8 +9,8 @@ class SigningPipelineTest(unittest.TestCase):
     def test_app_version_and_package_are_stable(self):
         gradle=(ROOT/'app/build.gradle').read_text(encoding='utf-8')
         self.assertIn("applicationId 'com.shanfoodsgroup.temperaturas'",gradle)
-        self.assertIn('versionCode 11',gradle)
-        self.assertIn("versionName '1.6.1'",gradle)
+        self.assertIn('versionCode 12',gradle)
+        self.assertIn("versionName '1.7.0-beta.1'",gradle)
         self.assertIn('signingConfig signingConfigs.release',gradle)
         self.assertIn("tasks.register('requirePermanentSigningKey')",gradle)
     def test_secrets_are_not_embedded_in_git(self):
@@ -22,7 +23,8 @@ class SigningPipelineTest(unittest.TestCase):
         self.assertIn(':app:assembleRelease',workflow)
         self.assertIn('apksigner',workflow)
         self.assertIn('if-no-files-found: error',workflow)
-        for f in ROOT.rglob('*'):
+        for name in subprocess.check_output(['git','ls-files'], cwd=ROOT, text=True).splitlines():
+            f = ROOT / name
             if f.is_file():
                 self.assertNotIn(f.suffix.lower(),('.p12','.jks','.keystore'),str(f))
     def test_same_fingerprint_expected_each_build(self):

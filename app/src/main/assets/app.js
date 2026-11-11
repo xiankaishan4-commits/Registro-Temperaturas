@@ -5,6 +5,7 @@
   const LEGACY_DB_NAME = 'shanfood_temperaturas_offline';
   const STORE_DEVICES = 'equipos';
   const STORE_RECORDS = 'registros';
+  const CLEANING_STORES = ['limpiezaPlanes', 'limpiezaEventos'];
 
   let dbInstance = null;
   let devicesCache = [];
@@ -86,13 +87,13 @@
       open.onblocked = () => reject(new Error('Cierra las otras ventanas antes de actualizar los datos.'));
       open.onsuccess = () => {
         const current = open.result;
-        const needsStores = [STORE_DEVICES, STORE_RECORDS].some(name => !current.objectStoreNames.contains(name));
+        const needsStores = [STORE_DEVICES, STORE_RECORDS, ...CLEANING_STORES].some(name => !current.objectStoreNames.contains(name));
         if (!needsStores) { dbInstance = current; return resolve(current); }
         const nextVersion = current.version + 1;
         current.close();
         const upgrade = indexedDB.open(DB_NAME, nextVersion);
         upgrade.onupgradeneeded = () => {
-          for (const name of [STORE_DEVICES, STORE_RECORDS]) {
+          for (const name of [STORE_DEVICES, STORE_RECORDS, ...CLEANING_STORES]) {
             if (!upgrade.result.objectStoreNames.contains(name)) upgrade.result.createObjectStore(name, { keyPath: 'id' });
           }
         };
@@ -856,10 +857,11 @@
   // El formato SHANFOODSGROUP_M3 v2 y todos los datos y fotos se mantienen sin cambios.
   function backupData() {
     return {format: 'SHANFOODSGROUP_M3', version: 2, exportedAt: new Date().toISOString(),
-      settings: {companyName}, equipos: devicesCache, registros: recordsCache};
+      settings: {companyName}, equipos: devicesCache, registros: recordsCache, limpieza: window.RTCleaning ? window.RTCleaning.snapshot() : undefined};
   }
   async function exportBackupJson() {
     try {
+      if (window.RTCleaning) await window.RTCleaning.refresh();
       const json = JSON.stringify(backupData());
       await saveFile(new Blob([json], {type:'application/json'}), `Registro_Temperaturas_Backup_${getTodayISO()}.json`);
       showSnackbar('Copia técnica JSON guardada. No es el informe para entregar.');
@@ -870,6 +872,7 @@
     const btn = document.getElementById(mode === 'share' ? 'btnShareZip' : 'btnExportZip');
     btn.disabled = true;
     try {
+      if (window.RTCleaning) await window.RTCleaning.refresh();
       const payload = JSON.stringify(backupData());
       const zipBlob = createStoredZip([
         { name: 'backup_datos.json', data: payload },
@@ -907,7 +910,8 @@
     if (data.settings && Object.prototype.hasOwnProperty.call(data.settings, 'companyName')) {
       if (data.settings.companyName !== '') restoredCompany = validateCompanyName(data.settings.companyName);
     }
-    return {ds, rs, restoredCompany};
+    const cleaning = window.RTCleaning ? window.RTCleaning.validateBackup(data.limpieza) : {plans:[],events:[]};
+    return {ds, rs, restoredCompany, cleaning};
   }
 
   async function importBackupFile(file) {
@@ -916,14 +920,14 @@
       if (file.size > 600 * 1024 * 1024) throw new Error('Archivo demasiado grande (máximo 600 MB).');
       const isJson = /\.json$/i.test(file.name);
       const files = isJson ? null : await extractStoredZip(await file.arrayBuffer());
-      let records, devices, restoredCompany;
+      let records, devices, restoredCompany, cleaning;
       if (isJson) {
-        ({ds: devices, rs: records, restoredCompany} = assertBackupShape(JSON.parse(await file.text())));
+        ({ds: devices, rs: records, restoredCompany, cleaning} = assertBackupShape(JSON.parse(await file.text())));
       } else if (files.has('backup_datos.json')) {
-        ({ds: devices, rs: records, restoredCompany} = assertBackupShape(JSON.parse(new TextDecoder().decode(files.get('backup_datos.json')))));
+        ({ds: devices, rs: records, restoredCompany, cleaning} = assertBackupShape(JSON.parse(new TextDecoder().decode(files.get('backup_datos.json')))));
       } else if (files.has('registro.json')) {
         const manifest = JSON.parse(new TextDecoder().decode(files.get('registro.json')));
-        ({ds: devices, rs: records, restoredCompany} = assertBackupShape(manifest));
+        ({ds: devices, rs: records, restoredCompany, cleaning} = assertBackupShape(manifest));
         records = await Promise.all(records.map(async row => {
           const photoBytes = files.get(`fotos/${row.id}.jpg`);
           if (!photoBytes) throw new Error('Foto ausente para el registro ' + row.id);
@@ -938,17 +942,26 @@
       const existingRecords = new Set((await dbGetAll(STORE_RECORDS)).map(r => String(r.id)));
       const newDs = [...newDevices.values()].filter(d => !existingDevices.has(d.id));
       const newRs = [...newRecords.values()].filter(r => !existingRecords.has(r.id));
-      const companyNotice = restoredCompany === undefined ? '\nSe conservará el nombre de empresa actual.' :
-        `\nNombre de la empresa: «${restoredCompany}» (sustituirá al actual).`;
+      const cleaningAdds = [];
+      if (window.RTCleaning) {
+        for (const [i, rows] of [cleaning.plans, cleaning.events].entries()) {
+          const existing = new Set((await dbGetAll(CLEANING_STORES[i])).map(r=>r.id));
+          cleaningAdds.push(...rows.filter(r=>!existing.has(r.id)).map(row=>({store:CLEANING_STORES[i], row})));
+        }
+      }
+      const companyNotice = (cleaningAdds.length ? `\nSe añadirán ${cleaningAdds.length} elementos de limpieza.` : '') + (restoredCompany === undefined ? '\nSe conservará el nombre de empresa actual.' :
+        `\nNombre de la empresa: «${restoredCompany}» (sustituirá al actual).`);
       if (!confirm(`Se añadirán ${newDs.length} equipos y ${newRs.length} registros NUEVOS. Los datos existentes NO se borrarán ni sobrescribirán.${companyNotice} ¿Continuar?`)) return;
-      if (newDs.length || newRs.length) await new Promise((resolve,reject) => {
-        const tx = dbInstance.transaction([STORE_DEVICES,STORE_RECORDS], 'readwrite');
+      if (newDs.length || newRs.length || cleaningAdds.length) await new Promise((resolve,reject) => {
+        const tx = dbInstance.transaction([STORE_DEVICES,STORE_RECORDS, ...(cleaningAdds.length ? CLEANING_STORES : [])], 'readwrite');
         for (const d of newDs) tx.objectStore(STORE_DEVICES).put(d);
         for (const r of newRs) tx.objectStore(STORE_RECORDS).put(r);
+        for (const item of cleaningAdds) tx.objectStore(item.store).add(item.row);
         tx.oncomplete = resolve;
         tx.onerror = () => reject(tx.error || new Error('Error de importación'));
         tx.onabort = () => reject(tx.error || new Error('Restauración interrumpida'));
       });
+      if (window.RTCleaning) await window.RTCleaning.refresh();
       if (restoredCompany !== undefined) saveCompanyName(restoredCompany);
       await loadAllData(); renderAll();
       statusEl.textContent = `✅ Importación completada: ${newDs.length} equipos, ${newRs.length} registros nuevos; existentes conservados.`;
@@ -1144,6 +1157,10 @@
       await loadAllData();
       if(!localStorage.getItem('rt_monitoring_since_v2')) localStorage.setItem('rt_monitoring_since_v2',String(Date.now()));
       resetEntryMode();
+      if (window.RTCleaning) {
+        try { await window.RTCleaning.attach({db:dbInstance, showSnackbar, saveFile, getCompany:displayCompanyName, switchView}); }
+        catch (error) { showSnackbar('No se pudo iniciar Limpieza: ' + error.message); }
+      }
     } catch (error) {
       showSnackbar('ERROR AL INICIAR: ' + error.message + '. Los datos antiguos no se han borrado.');
       console.error(error);

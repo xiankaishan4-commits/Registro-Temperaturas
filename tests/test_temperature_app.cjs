@@ -212,6 +212,9 @@ async function exportZip(page) {
     let response={draft:false,prerelease:false,tag_name:'v1.10.0',html_url:repo+'/releases/tag/v1.10.0',assets:[{state:'uploaded',size:50,browser_download_url:repo+'/releases/download/v1.10.0/app.apk'}]};
     let code=200;
     await page.route(endpoint,route=>route.fulfill({status:code,contentType:'application/json',body:JSON.stringify(response)}));
+    const betaInstalled=version.includes('-');
+    const noUpdateText=betaInstalled?'No hay una actualización oficial':'Ya tienes';
+    const noUpdateRelease=betaInstalled?'1.6.1':version;
     const updatesBefore=await readDB(page);
     async function checkUpdate(text) {
       await page.locator('#btnCheckUpdates').click();
@@ -220,16 +223,16 @@ async function exportZip(page) {
     }
     await checkUpdate('Nueva versión'); assert.equal(await page.locator('#updateLinks a').count(),2);
     assert.equal(await page.locator('#updateLinks a').last().getAttribute('href'),response.assets[0].browser_download_url);
-    response={...response,tag_name:'v'+version}; await checkUpdate('Ya tienes'); assert.equal(await page.locator('#updateLinks a').count(),0);
-    response={...response,tag_name:'v1.5.9'}; await checkUpdate('Ya tienes');
+    response={...response,tag_name:'v'+version.split('-')[0]}; await checkUpdate(betaInstalled?'Nueva versión':noUpdateText); assert.equal(await page.locator('#updateLinks a').count(),betaInstalled?2:0);
+    response={...response,tag_name:'v1.5.9'}; await checkUpdate(noUpdateText);
     response={...response,tag_name:'v2.0.0',assets:[]}; await checkUpdate('todavía no está disponible');
     code=403; await checkUpdate('HTTP 403'); assert.equal(await page.locator('#updateLinks a').count(),0);
     code=200; response={}; await checkUpdate('no válida');
     await context.setOffline(true); await checkUpdate('Sin conexión'); await context.setOffline(false);
     await page.evaluate(()=>{window.UpdateBridge.check=id=>setTimeout(()=>window.RTUpdates.receive(id,{error:'Fallo nativo de red'}),20);});
     await checkUpdate('Fallo nativo');
-    await page.evaluate(version=>{window.UpdateBridge.check=id=>window.RTUpdates.receive(id,{draft:false,prerelease:false,tag_name:'v'+version,html_url:'https://github.com/xiankaishan4-commits/Registro-Temperaturas/releases/tag/v'+version});},version);
-    await checkUpdate('Ya tienes');
+    await page.evaluate(version=>{window.UpdateBridge.check=id=>window.RTUpdates.receive(id,{draft:false,prerelease:false,tag_name:'v'+version,html_url:'https://github.com/xiankaishan4-commits/Registro-Temperaturas/releases/tag/v'+version});},noUpdateRelease);
+    await checkUpdate(noUpdateText);
     await page.evaluate(()=>{
       window.originalTimeout=window.setTimeout;
       window.setTimeout=(fn,ms,...args)=>window.originalTimeout(fn,ms===25000?20:ms,...args);
@@ -242,8 +245,8 @@ async function exportZip(page) {
         window.RTUpdates.receive(id-1,{error:'Respuesta antigua que debe ignorarse'});
         window.RTUpdates.receive(id,{draft:false,prerelease:false,tag_name:'v'+version,html_url:'https://github.com/xiankaishan4-commits/Registro-Temperaturas/releases/tag/v'+version});
       };
-    },version);
-    await checkUpdate('Ya tienes');
+    },noUpdateRelease);
+    await checkUpdate(noUpdateText);
     assert.deepEqual(await readDB(page),updatesBefore);
     if(process.env.RT_SCREENSHOT_DIR) await page.screenshot({path:path.join(process.env.RT_SCREENSHOT_DIR,'settings-version.png'),fullPage:true});
     // Real ZIP download, clean-profile restore, same-ID deduplication, photos, metadata.
