@@ -259,19 +259,21 @@ html, body {
 .m3-bottom-nav {
   position: fixed; bottom: 0; left: 0; right: 0; height: 72px;
   background: #ffffff; border-top: 1px solid var(--md-surface-variant);
-  display: grid; grid-template-columns: repeat(5, 1fr); z-index: 200;
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); z-index: 200;
 }
 .nav-item {
   background: none; border: none; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 4px;
+  min-width: 0; padding: 0 2px;
   cursor: pointer; color: var(--md-on-surface-variant);
 }
-.nav-pill { width: 64px; height: 32px; border-radius: var(--radius-full); display: flex; align-items: center; justify-content: center; }
+.nav-pill { width: min(64px, 100%); height: 32px; border-radius: var(--radius-full); display: flex; align-items: center; justify-content: center; }
 .nav-icon { font-size: 20px; }
 .nav-label { font-size: 12px; font-weight: 600; }
 .nav-item.active { color: var(--md-on-primary-container); }
 .nav-item.active .nav-pill { background: var(--md-primary-container); }
 .nav-item.active .nav-label { font-weight: 800; }
+@media (max-width: 359px) { .nav-label { font-size: 11px; } }
 
 .hidden { display: none !important; }
 .m3-modal-backdrop {

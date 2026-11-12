@@ -1008,7 +1008,12 @@
       if (saved) companyName = validateCompanyName(saved);
       renderCompanyName();
     } catch (error) { showSnackbar('No se pudo leer el nombre de empresa: ' + error.message); }
-    document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => switchView(b.dataset.target)));
+    document.querySelectorAll('.nav-item').forEach(button => {
+      button.addEventListener('click', () => {
+        if (button.dataset.target === 'view-cleaning') window.RTCleaning.open();
+        else switchView(button.dataset.target);
+      });
+    });
     document.getElementById('recordDeviceSelect').addEventListener('change', updateSelectedDeviceRangeBanner);
     document.getElementById('recordEntryMode').addEventListener('change', () => { correctionTargetId=null; document.getElementById('recordDeviceSelect').disabled=false; toggleEntryMode(); });
     document.getElementById('btnExportExcel').addEventListener('click', exportExcelReport);
@@ -1158,7 +1163,10 @@
       if(!localStorage.getItem('rt_monitoring_since_v2')) localStorage.setItem('rt_monitoring_since_v2',String(Date.now()));
       resetEntryMode();
       if (window.RTCleaning) {
-        try { await window.RTCleaning.attach({db:dbInstance, showSnackbar, saveFile, getCompany:displayCompanyName, switchView}); }
+        try {
+          await window.RTCleaning.attach({db:dbInstance, showSnackbar, saveFile, getCompany:displayCompanyName, switchView});
+          document.getElementById('navCleaning').disabled = false;
+        }
         catch (error) { showSnackbar('No se pudo iniciar Limpieza: ' + error.message); }
       }
     } catch (error) {

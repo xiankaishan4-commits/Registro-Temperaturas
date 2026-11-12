@@ -50,6 +50,7 @@ def main():
 
 Esta es una versión de prueba, no sustituye al Release estable.
 
+- Abre el Registro de Limpieza desde la pestaña Limpieza, entre Informes y Ajustes.
 - Limpieza diaria por área y turno, horarios editables y confirmación individual.
 - Tareas periódicas diarias, semanales, mensuales o cada N días; conserva tareas pendientes e historial.
 - Historial con filtros y exportación Excel/PDF por rango de fechas, incluidos controles pendientes.

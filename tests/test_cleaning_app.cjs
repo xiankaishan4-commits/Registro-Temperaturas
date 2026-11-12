@@ -10,7 +10,21 @@ const wait=(page,fn)=>page.waitForFunction(fn);
  try{
   await page.goto(url);await wait(page,()=>!!window.RTCleaning&&document.querySelector('#clAddDaily'));
   const original=await snapshot(page);
-  await page.locator('#btnOpenCleaning').click();await page.locator('[data-cl-tab="clAdmin"]').click();await page.locator('#clAddDaily').click();await page.locator('#clPlanArea').fill('Horno');await page.locator('#clAssignee').fill('Ana');await page.locator('#clPlanForm button[type=submit]').click();await page.locator('#clPlanModal').waitFor({state:'hidden'});
+  const cleaningNav = page.getByRole('button', {name:'Registro de Limpieza', exact:true});
+  await page.setViewportSize({width:320,height:844});
+  const navLabels = page.locator('.m3-bottom-nav .nav-label');
+  assert.deepEqual(await navLabels.allTextContents(), ['Inicio','Registrar','Historial','Informes','Limpieza','Ajustes']);
+  assert(await navLabels.evaluateAll(labels => labels.every(label => {
+    const text = label.getBoundingClientRect();
+    const button = label.closest('button').getBoundingClientRect();
+    return text.left >= button.left && text.right <= button.right;
+  })));
+  await page.locator('[data-target="view-devices"]').click();
+  await cleaningNav.click();
+  assert(await page.locator('#view-cleaning.active').isVisible());
+  assert(await page.locator('#navCleaning.active').isVisible());
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('[data-cl-tab="clAdmin"]').click();await page.locator('#clAddDaily').click();await page.locator('#clPlanArea').fill('Horno');await page.locator('#clAssignee').fill('Ana');await page.locator('#clPlanForm button[type=submit]').click();await page.locator('#clPlanModal').waitFor({state:'hidden'});
   await page.locator('[data-cl-tab="clDaily"]').click();assert.equal(await page.locator('#clDailyRows .cleaning-record').count(),2);
   await page.locator('#clDailyRows [data-complete]').first().click();await page.locator('#clPerson').fill('Luis');await page.locator('#clNotes').fill('Limpieza y desinfección');
   // Real aborted transaction must retain form and original pending state.
