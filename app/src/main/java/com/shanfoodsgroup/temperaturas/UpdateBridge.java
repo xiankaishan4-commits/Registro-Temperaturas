@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -16,6 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Read-only release checks. No measurement data, credentials or install permissions. */
 public final class UpdateBridge {
     private static final String REPO = "https://github.com/xiankaishan4-commits/Registro-Temperaturas/releases/";
+    private static final String RELEASES_API = "https://api.github.com/repos/xiankaishan4-commits/Registro-Temperaturas/releases";
     private final Activity activity;
     private final WebView web;
     private final AtomicBoolean busy = new AtomicBoolean();
@@ -23,13 +25,14 @@ public final class UpdateBridge {
 
     @JavascriptInterface public String getVersionName() { return BuildConfig.VERSION_NAME; }
 
-    @JavascriptInterface public void check(int requestId) {
+    @JavascriptInterface public void check(int requestId, boolean beta, int page) {
         if (!busy.compareAndSet(false, true)) return;
         new Thread(() -> {
             HttpURLConnection connection = null;
             JSONObject result;
             try {
-                connection = (HttpURLConnection) new URL("https://api.github.com/repos/xiankaishan4-commits/Registro-Temperaturas/releases/latest").openConnection();
+                String endpoint = RELEASES_API + (beta ? "?per_page=30&page=" + page : "/latest");
+                connection = (HttpURLConnection) new URL(endpoint).openConnection();
                 connection.setConnectTimeout(8000);
                 connection.setReadTimeout(8000);
                 connection.setInstanceFollowRedirects(false);
@@ -46,7 +49,8 @@ public final class UpdateBridge {
                             throw new java.io.IOException("Respuesta demasiado grande o lenta");
                         out.write(buffer, 0, n);
                     }
-                    result = new JSONObject(out.toString(StandardCharsets.UTF_8.name()));
+                    String response = out.toString(StandardCharsets.UTF_8.name());
+                    result = beta ? new JSONObject().put("releases", new JSONArray(response)) : new JSONObject(response);
                 }
             } catch (Exception e) {
                 result = new JSONObject();

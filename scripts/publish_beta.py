@@ -56,7 +56,7 @@ Esta es una versión de prueba, no sustituye al Release estable.
 - Historial con filtros y exportación Excel/PDF por rango de fechas, incluidos controles pendientes.
 - Datos offline y copias ZIP compatibles con las copias anteriores; restauración sin duplicar IDs.
 - Conserva temperatura, equipos, límites, fotos, alertas, recordatorios, auditoría y exportaciones existentes.
-- Ajustes muestra {version} desde BuildConfig. Buscar actualizaciones consulta solo Releases oficiales; no instala ni rebaja versiones automáticamente.
+- Ajustes permite buscar actualizaciones oficiales o Beta. El canal seleccionado se recuerda y la descarga se abre en el navegador.
 - Versión {version}, versionCode {code}; Android 10 o posterior.
 - Paquete: `com.shanfoodsgroup.temperaturas`; misma firma permanente que v1.6.1.
 - Certificado SHA-256: `CA948872880E588B54F63077AC25BDDCC13CE8C5126CBC38AF27DC26B30129CA`.

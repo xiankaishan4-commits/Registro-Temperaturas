@@ -1,11 +1,12 @@
 # Registro de Limpieza — desarrollo y Beta
 
 Rama: `feature/registro-limpieza-local`. Base: v1.6.1 / 14eec4815be17f0a087cb5eee112aee268b10fb4.
-Versión Beta: 1.7.0-beta.2, versionCode 13. El workflow independiente release-cleaning-beta.yml publica solo un prerelease desde esta rama, con la firma permanente, sin modificar main ni el Release estable.
+Versión Beta: 1.7.0-beta.3, versionCode 14. El workflow independiente release-cleaning-beta.yml publica solo un prerelease desde esta rama, con la firma permanente, sin modificar main ni el Release estable.
 
 ## Funciones
 
 Abrir Limpieza en la barra inferior, entre Informes y Ajustes, o usar el acceso Registro de Limpieza en Inicio.
+En Ajustes se puede elegir el canal oficial o Beta antes de buscar actualizaciones. Se recuerda la selección; la descarga se abre en el navegador.
 La administración permite crear áreas diarias con Mañana 09:00 y Noche 21:00, cambiar nombres y horas de turnos y crear tareas diarias, semanales, mensuales o cada N días.
 Cada tarea se confirma por separado. Persona puede escribirse o elegirse entre los nombres anteriores. Fecha/hora reales se capturan al guardar; una tarea atrasada conserva su fecha prevista y registra la fecha real de cumplimiento.
 Las tareas periódicas atrasadas permanecen visibles. Historial filtra por fechas, área, persona, turno y estado.

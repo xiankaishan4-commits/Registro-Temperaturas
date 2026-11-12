@@ -278,6 +278,13 @@
       <div class="m3-card" id="appUpdateSettings">
         <h2 class="card-title">Acerca de la aplicación</h2>
         <p id="appVersion" class="card-helper"></p>
+        <div class="m3-field">
+          <label for="updateChannel">Canal de actualización</label>
+          <select id="updateChannel" class="m3-select">
+            <option value="stable">Versión oficial</option>
+            <option value="beta">Beta (versión de prueba)</option>
+          </select>
+        </div>
         <button type="button" id="btnCheckUpdates" class="m3-btn m3-btn-tonal">Buscar actualizaciones</button>
         <p id="updateStatus" role="status" aria-live="polite"></p>
         <div id="updateLinks"></div>

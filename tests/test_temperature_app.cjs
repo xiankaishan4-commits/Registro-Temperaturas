@@ -247,6 +247,41 @@ async function exportZip(page) {
       };
     },noUpdateRelease);
     await checkUpdate(noUpdateText);
+    // Beta uses the Releases list, including subsequent pages, and compares version numbers.
+    const channel = page.locator('#updateChannel');
+    const betaRelease = tag => ({
+      draft:false, prerelease:true, tag_name:tag, html_url:repo+'/releases/tag/'+tag,
+      assets:[{state:'uploaded',size:50,browser_download_url:repo+'/releases/download/'+tag+'/app.apk'}]
+    });
+    const newerBeta = betaRelease('v1.7.0-beta.10');
+    const pages = [
+      [...Array(29).fill({...newerBeta,prerelease:false}), betaRelease('v1.7.0-beta.9')],
+      [{...newerBeta,draft:true}, betaRelease('v2.0.0-rc.1'), newerBeta]
+    ];
+    await page.evaluate(pages => {
+      window.requestedBetaPages = [];
+      window.UpdateBridge.check = (id, beta, page) => {
+        window.requestedBetaPages.push([beta, page]);
+        window.RTUpdates.receive(id, {releases:pages[page-1]});
+      };
+    }, pages);
+    assert.equal(await channel.inputValue(),'stable');
+    await channel.selectOption('beta');
+    await checkUpdate('Nueva versión Beta disponible: v1.7.0-beta.10');
+    assert.deepEqual(await page.evaluate(()=>window.requestedBetaPages), [[true,1],[true,2]]);
+    assert.equal(await page.locator('#updateLinks a').last().getAttribute('href'),newerBeta.assets[0].browser_download_url);
+    await page.reload();
+    await nav(page,'devices');
+    assert.equal(await channel.inputValue(),'beta');
+    const betaEndpoint = endpoint.replace('/latest','?per_page=30&page=1');
+    let betaResponse = [betaRelease('v1.7.0-beta.2')];
+    await page.route(url=>url.href===betaEndpoint, route=>route.fulfill({json:betaResponse}));
+    await checkUpdate('No hay una actualización Beta más reciente');
+    assert.equal(await page.locator('#updateLinks a').count(),0);
+    betaResponse = [];
+    await checkUpdate('No hay versiones Beta publicadas');
+    await channel.selectOption('stable');
+    assert.equal(await page.locator('#updateStatus').textContent(),'');
     assert.deepEqual(await readDB(page),updatesBefore);
     if(process.env.RT_SCREENSHOT_DIR) await page.screenshot({path:path.join(process.env.RT_SCREENSHOT_DIR,'settings-version.png'),fullPage:true});
     // Real ZIP download, clean-profile restore, same-ID deduplication, photos, metadata.

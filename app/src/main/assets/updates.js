@@ -1,6 +1,9 @@
 (function (root) {
   'use strict';
   const REPO = 'https://github.com/xiankaishan4-commits/Registro-Temperaturas';
+  const RELEASES_API = 'https://api.github.com/repos/xiankaishan4-commits/Registro-Temperaturas/releases';
+  const CHANNEL_KEY = 'rt_update_channel';
+  const PAGE_SIZE = 30;
   function versionParts(version) {
     const match = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
     if (!match || match[0] !== version) throw Error('Versión no válida');
@@ -30,33 +33,52 @@
     return url.startsWith(REPO + '/releases/' + kind + '/') &&
       !/[\s\\?#]/.test(url) && (kind !== 'download' || url.toLowerCase().endsWith('.apk'));
   }
-  function releaseInfo(release, current) {
-    if (!release || release.draft !== false || release.prerelease !== false ||
-        !trustedLink(release.html_url, 'tag') || versionParts(release.tag_name).pre.length) throw Error('Respuesta de GitHub no válida');
+  function releaseInfo(release, current, beta = false) {
+    if (!release || release.draft !== false || release.prerelease !== beta ||
+        !trustedLink(release.html_url, 'tag')) throw Error('Respuesta de GitHub no válida');
+    const prerelease = versionParts(release.tag_name).pre;
+    if (beta ? prerelease[0] !== 'beta' : prerelease.length !== 0) throw Error('Respuesta de GitHub no válida');
     const newer = compare(release.tag_name, current) > 0;
     const apk = (Array.isArray(release.assets) ? release.assets : []).find(a =>
-      a.state === 'uploaded' && a.size > 0 && trustedLink(a.browser_download_url, 'download'));
+      a && a.state === 'uploaded' && a.size > 0 && trustedLink(a.browser_download_url, 'download'));
     return {newer, version:release.tag_name, release:release.html_url, apk:apk ? apk.browser_download_url : null};
   }
   let current = null, pending = null, requestId = 0;
   function receive(id, value) { if (pending && id === requestId) pending(value); }
-  async function query() {
+  async function query(beta, page = 1) {
     if (root.UpdateBridge && typeof root.UpdateBridge.check === 'function') {
       return new Promise((resolve, reject) => {
         const id = ++requestId;
         const timer = setTimeout(() => { pending = null; reject(Error('Tiempo de espera agotado')); }, 25000);
         pending = result => { clearTimeout(timer); pending = null; result.error ? reject(Error(result.error)) : resolve(result); };
-        try { root.UpdateBridge.check(id); } catch (error) { clearTimeout(timer); pending = null; reject(error); }
+        try { root.UpdateBridge.check(id, beta, page); } catch (error) { clearTimeout(timer); pending = null; reject(error); }
       });
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12000);
     try {
-      const response = await fetch('https://api.github.com/repos/xiankaishan4-commits/Registro-Temperaturas/releases/latest',
+      const url = RELEASES_API + (beta ? '?per_page=' + PAGE_SIZE + '&page=' + page : '/latest');
+      const response = await fetch(url,
         {signal:controller.signal, cache:'no-store', headers:{Accept:'application/vnd.github+json'}});
       if (!response.ok) throw Error('GitHub HTTP ' + response.status);
-      return await response.json();
+      const result = await response.json();
+      return beta ? {releases:result} : result;
     } finally { clearTimeout(timer); }
+  }
+  async function checkChannel(beta) {
+    if (!beta) return releaseInfo(await query(false), current);
+    let latest = null;
+    for (let page = 1; ; page++) {
+      const {releases} = await query(true, page);
+      if (!Array.isArray(releases)) throw Error('Respuesta de GitHub no válida');
+      for (const release of releases) {
+        let info;
+        try { info = releaseInfo(release, current, true); }
+        catch (_) { continue; } // Ignore stable, draft, non-Beta and invalid releases.
+        if (!latest || compare(info.version, latest.version) > 0) latest = info;
+      }
+      if (releases.length < PAGE_SIZE) return latest;
+    }
   }
   function addLink(url, label) {
     const a = document.createElement('a'); a.href = url; a.textContent = label;
@@ -73,24 +95,41 @@
     } catch (_) { current = null; }
     document.getElementById('appVersion').textContent = current ? 'Versión ' + current : 'Versión: disponible en la aplicación Android';
     const btn = document.getElementById('btnCheckUpdates');
+    const channel = document.getElementById('updateChannel');
+    const status = document.getElementById('updateStatus');
+    const links = document.getElementById('updateLinks');
+    try { if (root.localStorage.getItem(CHANNEL_KEY) === 'beta') channel.value = 'beta'; }
+    catch (_) { /* The selector still works without storage. */ }
+    channel.addEventListener('change', () => {
+      try { root.localStorage.setItem(CHANNEL_KEY, channel.value); }
+      catch (_) { /* The current selection remains active. */ }
+      status.textContent = '';
+      links.replaceChildren();
+    });
     btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      const status = document.getElementById('updateStatus');
-      document.getElementById('updateLinks').replaceChildren();
+      btn.disabled = channel.disabled = true;
+      const beta = channel.value === 'beta';
+      links.replaceChildren();
       status.textContent = 'Buscando actualizaciones…';
       try {
         if (!current) throw Error('No se pudo leer la versión instalada. Abre la aplicación Android');
         if (typeof navigator !== 'undefined' && navigator.onLine === false) throw Error('Sin conexión a Internet');
-        const info = releaseInfo(await query(), current);
-        status.textContent = info.newer ? `Nueva versión disponible: ${info.version}.` :
-          versionParts(current).pre.length ? `No hay una actualización oficial más reciente. Última versión oficial: ${info.version}. Versión instalada: ${current}.` : 'Ya tienes la última versión disponible.';
+        const info = await checkChannel(beta);
+        if (!info) {
+          status.textContent = 'No hay versiones Beta publicadas.';
+          return;
+        }
+        if (info.newer) status.textContent = `Nueva versión ${beta ? 'Beta ' : ''}disponible: ${info.version}.`;
+        else if (beta) status.textContent = `No hay una actualización Beta más reciente. Última Beta: ${info.version}. Versión instalada: ${current}.`;
+        else if (versionParts(current).pre.length) status.textContent = `No hay una actualización oficial más reciente. Última versión oficial: ${info.version}. Versión instalada: ${current}.`;
+        else status.textContent = 'Ya tienes la última versión disponible.';
         if (info.newer) {
           addLink(info.release, 'Ver Release en GitHub');
           if (info.apk) addLink(info.apk, 'Descargar APK');
           else status.textContent += ' El APK todavía no está disponible; consulta el Release.';
         }
       } catch (error) { status.textContent = 'No se pudo comprobar: ' + error.message + '. Inténtalo de nuevo cuando tengas conexión.'; }
-      finally { btn.disabled = false; }
+      finally { btn.disabled = channel.disabled = false; }
     });
   }
   root.RTUpdates = {compare, trustedLink, releaseInfo, receive, init};
